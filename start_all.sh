@@ -39,16 +39,11 @@ echo "🔄 [2/3] 正在啟動主動學習同步警衛與 Webhook 接收端..."
 ./start_full_auto.sh
 
 # 4. 啟動第三步：最前線影像推論 Edge Worker
-echo "🎬 [3/3] 正在點火最前線推理與微服務..."
-if [ "$1" == "--headless" ]; then
-    echo "🖥️  以 Headless 背景模式啟動前線影像辨識..."
-    nohup ./start_inference.sh --headless > "$BASE_DIR/inference_system.log" 2>&1 &
-    echo "======================================================="
-    echo "🎉 [啟動完成] 所有服務已全數在背景順暢運行！"
-    echo "💡 您可以關閉此終端機，並透過以下指令查看前線推論日誌："
-    echo "   tail -f inference_system.log"
-    echo "======================================================="
-else
-    echo "🖥️  以 GUI 視窗模式啟動前線影像辨識..."
-    ./start_inference.sh
-fi
+echo "🎬 [3/3] 正在點火最前線推理與微服務 (純背景 / 無視窗 Headless 模式)..."
+nohup ./start_inference.sh --headless > "$BASE_DIR/inference_system.log" 2>&1 &
+echo "======================================================="
+echo "🎉 [點火完成] 所有服務已全數在背景高效率運行！"
+echo "🌐 您可以直接打開網頁觀看 WebRTC 串流："
+echo "   RTSP.MediaMTX_20260723/MediaMTX_web.html"
+echo "💡 查看推論日誌指令：tail -f inference_system.log"
+echo "======================================================="
