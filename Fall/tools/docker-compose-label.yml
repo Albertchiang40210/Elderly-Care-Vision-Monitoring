@@ -10,7 +10,7 @@ services:
     volumes:
       - lsdata:/label-studio/data
       # 🎯 將 Mac 本地的圖片與標記資料夾掛載至容器內
-      - /Users/albert/Documents/專案/AIPE03/Fall/active_learning_dataset:/label-studio/data/active_learning_dataset
+      - ../active_learning_dataset:/label-studio/data/active_learning_dataset
     environment:
       # 🎯 啟用本地檔案服務，並將 Document Root 對齊掛載路徑
       - LABEL_STUDIO_LOCAL_FILES_SERV_ENABLED=true

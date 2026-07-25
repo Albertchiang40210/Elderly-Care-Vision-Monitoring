@@ -4,7 +4,7 @@
 # 🚀 辨識端一鍵全功能通電 —— 強制解除環境污染完全體版 (整合 MLOps 熱部署)
 # =========================================================================
 
-BASE_DIR="/Users/albert/Documents/專案/AIPE03"
+BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 KELLY_DIR="$BASE_DIR/backend"
 FALL_DIR="$BASE_DIR/Fall"
 

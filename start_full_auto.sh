@@ -4,7 +4,7 @@
 # 👑 MLOps 全自動學習閉環點火器 —— 終極極簡通車版 (畫面完美純淨體)
 # =========================================================================
 
-PROJECT_PATH="/Users/albert/Documents/專案/AIPE03/Fall"
+PROJECT_PATH="$(cd "$(dirname "$0")" && pwd)/Fall"
 TOOLS_PATH="$PROJECT_PATH/tools"
 VENV_PATH="$PROJECT_PATH/.venv/bin/activate"
 

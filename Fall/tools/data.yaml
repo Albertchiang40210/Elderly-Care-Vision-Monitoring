@@ -1,5 +1,5 @@
 # 🚨 核心修正：使用絕對路徑，徹底防止 Ultralytics 在 Mac 系統環境下定位錯誤
-path: /Users/albert/Documents/專案/AIPE03/Fall/active_learning_dataset
+path: ../active_learning_dataset
 train: images
 val: images
 
