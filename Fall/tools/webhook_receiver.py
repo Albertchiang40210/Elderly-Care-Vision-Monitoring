@@ -18,7 +18,7 @@ except ImportError as e:
 app = FastAPI()
 
 ANNOTATION_COUNT = 0
-TRIGGER_THRESHOLD = 100 # 🚀 業界高標準生產規格：累積滿 100 張人工審核/修正照片才點火重訓
+TRIGGER_THRESHOLD = 10 # 🚀 展示測試模式：累積滿 10 張照片即自動點火重訓
 
 async def async_clearml_fire():
     """
