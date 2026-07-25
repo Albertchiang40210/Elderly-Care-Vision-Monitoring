@@ -19,6 +19,20 @@ echo "🐳 [1/3] 正在啟動所有 Docker 容器服務 (Triton, Kafka, ClearML,
 echo "⏳ 等待 Docker 服務暖身 10 秒..."
 sleep 10
 
+# 2.5 自動在背景啟動 MediaMTX 與 FFmpeg RTSP 模擬推流
+echo "📡 [MediaMTX & RTSP] 正在自動啟動 MediaMTX 串流伺服器與影片推流..."
+pkill -f mediamtx >/dev/null 2>&1
+nohup mediamtx > "$BASE_DIR/mediamtx.log" 2>&1 &
+sleep 2
+
+TEST_VIDEO="$BASE_DIR/Fall/test_demo/test1.mp4"
+if [ -f "$TEST_VIDEO" ]; then
+    echo "🎥 正在背景掛載影片 RTSP 推流: $TEST_VIDEO -> rtsp://localhost:8554/cam_in"
+    pkill -f "ffmpeg.*rtsp://localhost:8554" >/dev/null 2>&1
+    nohup ffmpeg -re -stream_loop -1 -i "$TEST_VIDEO" -c copy -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
+    sleep 2
+fi
+
 # 3. 啟動第二步：主動學習同步與監聽中樞
 echo "🔄 [2/3] 正在啟動主動學習同步警衛與 Webhook 接收端..."
 ./start_full_auto.sh
