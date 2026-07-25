@@ -72,13 +72,18 @@ def main():
     # 3. 開始訓練
     # 🎯 直接在 train 內加入 plots=False，這能 100% 關閉大圖生成與上傳，
     # 同時完美避開了 ImportError 版本相容問題，並大幅節省連線頻寬！
+    # 3. 開始訓練 (優先掛載 Apple Silicon GPU / MPS 加速)
+    import torch
+    train_device = 'mps' if torch.backends.mps.is_available() else ('0' if torch.cuda.is_available() else 'cpu')
+    print(f"🚀 [硬體點火] 重訓引擎已掛載 GPU 加速裝置: {train_device}")
+
     model.train(
         data=data_yaml_path, 
         epochs=1, 
         imgsz=640, 
         batch=4, 
-        device='cpu',  # 測試用 CPU 跑 1 epoch 即可
-        plots=False    # 阻擋生成/上傳大圖，確保連線不中斷
+        device=train_device,
+        plots=False
     )
 
     # =========================================================================
