@@ -118,18 +118,21 @@ print("🎉 [登入成功] 已獲取合法網頁 Session 憑證！")
 # 📡 自動探查專案標籤介面設定
 # =========================================================================
 FROM_NAME, TO_NAME = "label", "image"
+PROJECT_TITLE = ""
 try:
     proj_url = f"{LS_URL}/api/projects/{PROJECT_ID}/"
     session.headers.update({"X-CSRFToken": session.cookies.get('csrftoken', '')})
     p_res = session.get(proj_url, timeout=5)
     if p_res.status_code == 200:
-        label_config = p_res.json().get("label_config", "")
+        p_json = p_res.json()
+        PROJECT_TITLE = p_json.get("title", "")
+        label_config = p_json.get("label_config", "")
         import re
         from_match = re.search(r'name="([^"]+)"\s+toName=', label_config)
         to_match = re.search(r'toName="([^"]+)"', label_config)
         if from_match: FROM_NAME = from_match.group(1)
         if to_match: TO_NAME = to_match.group(1)
-        print(f"📡 [介面探查成功] 動態綁定標籤映射: from_name='{FROM_NAME}', to_name='{TO_NAME}'")
+        print(f"📡 [介面探查成功] 動態綁定專案 '{PROJECT_TITLE}' 標籤映射: from_name='{FROM_NAME}', to_name='{TO_NAME}'")
 except Exception as e: print(f"⚠️ 探查專案介面失敗，使用預設對齊 (label/image)。原因: {e}")
 
 
@@ -292,16 +295,28 @@ for idx, task in enumerate(pending, 1):
         pushed += 1
         continue
 
-    # 執行 DEIM-DETR
+    # ─── 🛡️ 智慧標註分支：依據專案類型進行精準篩選 ───
+    # 判斷專案名稱是否包含 Fall/跌倒，若有則只打 person 框；否則按危險雜物打標
+    IS_FALL_PROJECT = "fall" in PROJECT_TITLE.lower() or "跌倒" in PROJECT_TITLE
+    
     results = model.predict(img_cv2, conf=CONF_THRES, verbose=False)
     ls_result, yolo_lines = [], []
     
     if results and len(results[0].boxes) > 0:
         for box in results[0].boxes:
             cls_id = int(box.cls[0].item())
-            if cls_id not in ENVIRONMENT_COCO: continue
             
-            label_name = ENVIRONMENT_COCO[cls_id]
+            if IS_FALL_PROJECT:
+                # 跌倒專案：只畫 person (COCO 類別 0 為 person)
+                if cls_id != 0: continue
+                label_name = "person"
+                yolo_cls_id = 0
+            else:
+                # 危險雜物專案：只畫 5 大危險雜物
+                if cls_id not in ENVIRONMENT_COCO: continue
+                label_name = ENVIRONMENT_COCO[cls_id]
+                yolo_cls_id = ENV_LABEL_TO_YOLO.get(label_name, 0)
+            
             conf = float(box.conf[0].item())
             xyxy = box.xyxy.cpu().numpy()[0]
             
@@ -315,7 +330,7 @@ for idx, task in enumerate(pending, 1):
                 "value": {"x": ls_x, "y": ls_y, "width": ls_w, "height": ls_h, "rectanglelabels": [label_name]},
                 "score": conf
             })
-            yolo_lines.append(f"{ENV_LABEL_TO_YOLO[label_name]} {box.xywhn.cpu().numpy()[0][0]:.6f} {box.xywhn.cpu().numpy()[0][1]:.6f} {box.xywhn.cpu().numpy()[0][2]:.6f} {box.xywhn.cpu().numpy()[0][3]:.6f}")
+            yolo_lines.append(f"{yolo_cls_id} {box.xywhn.cpu().numpy()[0][0]:.6f} {box.xywhn.cpu().numpy()[0][1]:.6f} {box.xywhn.cpu().numpy()[0][2]:.6f} {box.xywhn.cpu().numpy()[0][3]:.6f}")
 
     if not ls_result:
         ls_result.append({
