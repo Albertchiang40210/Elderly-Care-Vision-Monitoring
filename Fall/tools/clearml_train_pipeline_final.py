@@ -19,70 +19,59 @@ if os.path.exists(env_path):
 
 import os
 from clearml import Task, OutputModel
-from ultralytics import RTDETR
+from ultralytics import YOLO, RTDETR
 
 def main():
     # 1. 初始化 Task
-    # 當 Agent 背景執行時，這裡的 Task.init 會自動「接管」剛剛在 submit_task 建立好的排隊任務
     task = Task.init(
-        project_name="Fall_Detection", 
-        task_name="RTDETR_Cloud_Incremental_Training_Automated"
+        project_name=os.environ.get("CLEARML_PROJECT", "Fall_Detection"), 
+        task_name=os.environ.get("CLEARML_TASK_NAME", "Auto_Incremental_Training")
     )
     
-    # 🎯 🌟 [極度關鍵：S3 路徑強行矯正]
-    # 因為 submit_task.py 為了繞過本地憑證檢查，把任務預設路徑變成了 localhost
-    # 現在 Agent 已接管且具備 AWS 憑證，我們要在重訓開始前，強行把結果輸出路徑扳回 S3！
-    task.output_uri = "s3://aipe03-3/clearml-artifacts/models/fall_detection/"
+    project_name = task.get_project_name()
+    IS_FALL_PROJECT = "fall" in project_name.lower() or "跌倒" in project_name
     
-    # =========================================================================
-    # 🐋 這裡的代碼只有當「背景 Agent 工人」咬到單之後，才會在背景全自動執行
-    # =========================================================================
-    print("====== 🍏 [Agent 遠端] 背景運算節點已成功接單，正式啟動重訓 ======")
+    task.output_uri = f"s3://aipe03-3/clearml-artifacts/models/{project_name.lower()}/"
+    print(f"====== 🍏 [Agent 遠端] 背景運算節點已成功接單 (專案: {project_name}) ======")
     
-    # 🎯 🌟 【業界滾動式重訓核心：繼承上一輪最強大腦】
-    # 不要直接寫死 rtdetr-l.pt！先去 ClearML 雲端尋找有沒有同專案、最新產出的 'best' 模型
-    base_model_path = 'rtdetr-l.pt'
+    if IS_FALL_PROJECT:
+        model_type = "yolo_pose"
+        default_model_name = "yolo11s-pose.pt"
+        tag_list = ["yolo_pose", "best"]
+    else:
+        model_type = "detr"
+        default_model_name = "rtdetr-l.pt"
+        tag_list = ["detr", "best"]
+
+    base_model_path = default_model_name
     try:
         from clearml import Model
-        print("🔍 [增量鏈結] 正在檢查雲端是否有上一輪產出的最強大腦...")
-        cloud_bests = Model.query_models(project_name="Fall_Detection", tags=["detr", "best"])
+        print(f"🔍 [增量鏈結] 正在檢查雲端是否有上一輪產出的 {model_type} 最強大腦...")
+        cloud_bests = Model.query_models(project_name=project_name, tags=tag_list)
         if cloud_bests:
-            # 依據創建時間 (created) 在記憶體中排序，撈出最新產出的那個模型
             cloud_bests = sorted(cloud_bests, key=lambda m: m.created, reverse=True)
             latest_cloud_model = cloud_bests[0]
-            print(f"📥 [找到大腦] 發現上一輪的最新 RT-DETR 模型 (ID: {latest_cloud_model.id})，正在拉取權重進行繼承...")
-            
-            # 下載該模型到 Agent 工作目錄下
+            print(f"📥 [找到大腦] 發現上一輪的最新 {model_type} 模型 (ID: {latest_cloud_model.id})，正在拉取權重...")
             downloaded_base = latest_cloud_model.get_local_copy()
             if downloaded_base and os.path.exists(downloaded_base):
                 base_model_path = downloaded_base
-                print("🔄 [繼承成功] 成功載入最新雲端權重，模型將在此基礎上『繼續進修』變更聰明！")
+                print("🔄 [繼承成功] 成功載入最新雲端權重，模型將在此基礎上增量微調！")
         else:
-            print("ℹ️ 雲端尚未有任何 'detr' 'best' 模型，本次重訓將從原始 'rtdetr-l.pt' 開始冷啟動。")
+            print(f"ℹ️ 雲端尚未有任何 {tag_list} 模型，將從原始 '{default_model_name}' 開始冷啟動。")
     except Exception as e:
-        print(f"⚠️ 嘗試拉取雲端最強模型失敗 ({e})，降級使用原始 'rtdetr-l.pt'。")
+        print(f"⚠️ 嘗試拉取雲端模型失敗 ({e})，降級使用 '{default_model_name}'。")
     
-    # 2. 載入 RTDETR 模型權重（可能是原始的，也可能是上一輪傳下來的最強大腦）
-    model = RTDETR(base_model_path)
+    if IS_FALL_PROJECT:
+        model = YOLO(base_model_path)
+    else:
+        model = RTDETR(base_model_path)
     
     CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-    FALL_DIR = os.path.dirname(CURRENT_DIR)
-    DATASET_DIR = os.path.join(FALL_DIR, 'active_learning_dataset')
-    
-    # 🎯 動態修正 data.yaml 的路徑為當前主機的絕對路徑，防範 Ultralytics 跨目錄尋找失敗
     data_yaml_path = os.path.join(CURRENT_DIR, 'data.yaml')
-    with open(data_yaml_path, 'w', encoding='utf-8') as f:
-        f.write(f"path: {DATASET_DIR}\n")
-        f.write("train: images\n")
-        f.write("val: images\n\n")
-        f.write("names:\n")
-        f.write("  0: wheelchair\n")
-        f.write("  1: slipper\n")
-        f.write("  2: wire\n")
-        f.write("  3: obstacle\n")
-        f.write("  4: walker\n")
 
     # 3. 開始訓練
+    # 🎯 直接在 train 內加入 plots=False，這能 100% 關閉大圖生成與上傳，
+    # 同時完美避開了 ImportError 版本相容問題，並大幅節省連線頻寬！
     model.train(
         data=data_yaml_path, 
         epochs=1, 
