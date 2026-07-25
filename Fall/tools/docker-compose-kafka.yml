@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.0
+    container_name: nh-zookeeper
+    restart: "no"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: nh-kafka
+    restart: "no"
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_ZOOKEEPER_SESSION_TIMEOUT_MS: 60000
+      KAFKA_ZOOKEEPER_CONNECTION_TIMEOUT_MS: 60000
+
+  postgres:
+    image: postgres:15
+    container_name: nh-postgres
+    restart: "no"
+    environment:
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpassword
+      POSTGRES_DB: aidb
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
+
+#「它是我們智慧病房後台的『高速公路收發站與中央資料庫倉庫』。」
+#如果說 ClearML 的 Docker 是模型學習的「研究所」，那這份 Docker 設定檔就是你整套串流系統的「交通樞紐（基礎建設）」。它在本地一鍵開啟了三個非常關鍵的服務：
+#zookeeper：Kafka 的「總調度官」（負責在幕後管理和維護 Kafka 叢集的節點狀態）。
+#kafka (Port 9092)：後台的「超級快遞收發中心（訊息佇列）」。
+#在即時影像串流中，前線相機每秒會產生大量的事件與分析報告（對應你 .env 檔中的 KAFKA_TOPIC=processed-reports）。
+#Kafka 的角色就是確保這些訊息絕對不會漏掉。它能用極高的吞吐量接收、排序這些事件，再穩穩地送給後端或標註系統。
+#postgres (Port 5433)：後台的「中央關聯式資料庫」。
+#這是你本地運作的 PostgreSQL 資料庫（對應你 .env 檔中第 1 區塊的 RDS 架構，方便在本地開發測試）。
+#它負責儲存病患的基本資料、跌倒告警歷史紀錄等高度結構化、需要永久保存的資料。

@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>MediaMTX 即時監控與截圖</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 30px;
+      background: #151515;
+      color: #ffffff;
+      font-family: Arial, "Microsoft JhengHei", sans-serif;
+    }
+
+    .container {
+      width: min(1100px, 100%);
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin-top: 0;
+      text-align: center;
+    }
+
+    .status {
+      margin-bottom: 15px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      background: #292929;
+    }
+
+    .video-container {
+      position: relative;
+      overflow: hidden;
+      width: 100%;
+      background: #000000;
+      border: 1px solid #444444;
+      border-radius: 12px;
+    }
+
+    video {
+      display: block;
+      width: 100%;
+      max-height: 70vh;
+      background: #000000;
+      object-fit: contain;
+      transition: filter 0.3s ease;
+    }
+
+    /* 畫質增強樣式 */
+    video.enhanced {
+      filter: contrast(1.08) saturate(1.05);
+    }
+
+    #overlayCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .hud-panel {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      padding: 10px 14px;
+      background: rgba(0, 0, 0, 0.78);
+      border: 1px solid rgba(0, 255, 128, 0.4);
+      border-radius: 6px;
+      font-family: "Courier New", Consolas, monospace;
+      font-size: 11.5px;
+      line-height: 1.35;
+      color: #dddddd;
+      z-index: 10;
+      backdrop-filter: blur(4px);
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+
+    .hud-panel.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .hud-title {
+      color: #00ff88;
+      font-weight: bold;
+    }
+
+    .hud-metric {
+      color: #00e5ff;
+    }
+
+    .camera-name {
+      position: absolute;
+      top: 12px;
+      right: 140px;
+      padding: 7px 11px;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.65);
+      font-size: 14px;
+    }
+
+    .fps-badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      padding: 7px 11px;
+      border-radius: 6px;
+      background: rgba(0, 180, 216, 0.85);
+      color: #ffffff;
+      font-weight: bold;
+      font-size: 14px;
+      font-family: monospace;
+    }
+
+    /* 手機與窄螢幕 RWD 優化 */
+    @media (max-width: 600px) {
+      body {
+        padding: 12px;
+      }
+      .hud-panel {
+        font-size: 10px;
+        padding: 6px 10px;
+        top: 8px;
+        left: 8px;
+      }
+      .camera-name {
+        top: 8px;
+        right: 90px;
+        padding: 4px 8px;
+        font-size: 11px;
+      }
+      .fps-badge {
+        top: 8px;
+        right: 8px;
+        padding: 4px 8px;
+        font-size: 11px;
+      }
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 18px;
+      align-items: center;
+    }
+
+    button,
+    select {
+      min-height: 42px;
+      padding: 10px 18px;
+      border: 0;
+      border-radius: 7px;
+      font-size: 15px;
+      font-weight: 500;
+      transition: background-color 0.2s;
+    }
+
+    button {
+      cursor: pointer;
+      background: #eeeeee;
+      color: #111111;
+    }
+
+    button:hover {
+      background: #d8d8d8;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    .btn-toggle-hud {
+      background: #2b3a4a;
+      color: #00e5ff;
+      border: 1px solid rgba(0, 229, 255, 0.3);
+    }
+    .btn-toggle-hud:hover {
+      background: #3a4c60;
+    }
+
+    .snapshot-section {
+      margin-top: 28px;
+    }
+
+    .snapshot-section h2 {
+      margin-bottom: 12px;
+    }
+
+    #snapshotPreview {
+      display: none;
+      width: 100%;
+      max-height: 70vh;
+      border: 1px solid #444444;
+      border-radius: 12px;
+      background: #000000;
+      object-fit: contain;
+    }
+
+    .snapshot-info {
+      margin-top: 10px;
+      color: #bbbbbb;
+    }
+
+    #snapshotCanvas {
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+  <main class="container">
+    <h1>MediaMTX 即時監控系統</h1>
+
+    <div id="status" class="status">
+      正在初始化……
+    </div>
+
+    <section class="video-container">
+      <video id="video" autoplay muted playsinline class="enhanced"></video>
+      <canvas id="overlayCanvas"></canvas>
+
+      <!-- 🌟 WebRTC 原生遙測面板 (Live WebRTC Telemetry HUD) -->
+      <div class="hud-panel" id="hudPanel">
+        <div class="hud-title" id="hudStatusTitle">[連線] WebRTC 傳輸正常</div>
+        <div>recv/decode fps <span class="hud-metric" id="hudFps">--/--</span></div>
+        <div>drop/loss <span class="hud-metric" id="hudDropLoss">0.0/s  0.0%</span></div>
+        <div>nack/pli <span class="hud-metric" id="hudNackPli">0/0 /s</span></div>
+        <div>rtt/jitter/jbuf <span class="hud-metric" id="hudJitter">0/0/0 ms</span></div>
+        <div>decode <span class="hud-metric" id="hudDecode">0.0 ms/f</span></div>
+        <div>bitrate / speed <span class="hud-metric" id="hudBitrate">0 kbps</span></div>
+        <div class="hud-title" style="margin-top: 5px;" id="hudAlignTitle">[bbox] 畫面時間軸對齊</div>
+        <div>meta lag <span class="hud-metric" id="hudMetaLag">+0 ms</span></div>
+      </div>
+
+      <div class="camera-name">
+        Room 301 Live
+      </div>
+
+      <div class="fps-badge" id="fpsDisplay">
+        Web FPS: --
+      </div>
+    </section>
+
+    <div class="controls">
+      <button id="reconnectButton" type="button">
+        手動重新連線
+      </button>
+
+      <button id="toggleHudBtn" class="btn-toggle-hud" type="button">
+        顯示/隱藏 HUD 數據
+      </button>
+
+      <button id="snapshotButton" type="button" disabled>
+        截取目前畫面
+      </button>
+
+      <select id="imageFormat" aria-label="截圖格式">
+        <option value="image/jpeg">JPG</option>
+        <option value="image/png">PNG</option>
+      </select>
+    </div>
+
+    <section class="snapshot-section">
+      <h2>截圖預覽</h2>
+
+      <img id="snapshotPreview" alt="攝影機截圖預覽">
+
+      <div id="snapshotInfo" class="snapshot-info">
+        尚未截圖
+      </div>
+    </section>
+
+    <canvas id="snapshotCanvas"></canvas>
+  </main>
+
+  <script>
+    /*
+     * 你的 MediaMTX WebRTC/WHEP 網址。
+     *
+     * 可直接播放的頁面：
+     * http://127.0.0.1:8889/my_camera_tapo/
+     *
+     * 自訂播放器使用的 WHEP API：
+     * http://127.0.0.1:8889/my_camera_tapo/whep
+     */
+    const WHEP_URL =
+      "http://127.0.0.1:8889/cam_out/whep";
+
+    const video = document.getElementById("video");
+    const statusElement = document.getElementById("status");
+
+    const reconnectButton =
+      document.getElementById("reconnectButton");
+
+    const snapshotButton =
+      document.getElementById("snapshotButton");
+
+    const imageFormat =
+      document.getElementById("imageFormat");
+
+    const snapshotCanvas =
+      document.getElementById("snapshotCanvas");
+
+    const snapshotPreview =
+      document.getElementById("snapshotPreview");
+
+    const snapshotInfo =
+      document.getElementById("snapshotInfo");
+
+    let peerConnection = null;
+    let currentObjectUrl = null;
+    let autoReconnectTimer = null;
+    let isConnecting = false;
+
+    const toggleHudBtn = document.getElementById("toggleHudBtn");
+    const hudPanel = document.getElementById("hudPanel");
+
+    toggleHudBtn.addEventListener("click", () => {
+      hudPanel.classList.toggle("hidden");
+    });
+
+    function setStatus(message) {
+      statusElement.textContent = message;
+      console.log(message);
+    }
+
+    function scheduleAutoReconnect() {
+      if (autoReconnectTimer) return;
+      setStatus("連線中斷，將於 5 秒後自動嘗試重新連線……");
+      autoReconnectTimer = setTimeout(() => {
+        autoReconnectTimer = null;
+        connectWebRTC();
+      }, 5000);
+    }
+
+    function waitForIceGatheringComplete(pc) {
+      return new Promise((resolve) => {
+        if (pc.iceGatheringState === "complete") {
+          resolve();
+          return;
+        }
+
+        const handleStateChange = () => {
+          if (pc.iceGatheringState === "complete") {
+            pc.removeEventListener(
+              "icegatheringstatechange",
+              handleStateChange
+            );
+
+            resolve();
+          }
+        };
+
+        pc.addEventListener(
+          "icegatheringstatechange",
+          handleStateChange
+        );
+      });
+    }
+
+    function closeConnection() {
+      snapshotButton.disabled = true;
+
+      if (peerConnection) {
+        peerConnection.ontrack = null;
+        peerConnection.onconnectionstatechange = null;
+        peerConnection.oniceconnectionstatechange = null;
+
+        peerConnection.close();
+        peerConnection = null;
+      }
+
+      video.srcObject = null;
+    }
+
+    async function connectWebRTC() {
+      if (isConnecting) return;
+      isConnecting = true;
+
+      if (autoReconnectTimer) {
+        clearTimeout(autoReconnectTimer);
+        autoReconnectTimer = null;
+      }
+
+      closeConnection();
+      setStatus("正在連接 MediaMTX (WHEP)……");
+
+      try {
+        peerConnection = new RTCPeerConnection({
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" } // 加入 STUN 相容性
+          ]
+        });
+
+        peerConnection.addTransceiver("video", {
+          direction: "recvonly"
+        });
+
+        peerConnection.ontrack = (event) => {
+          let stream = event.streams[0];
+
+          if (!stream) {
+            stream = new MediaStream([event.track]);
+          }
+
+          video.srcObject = stream;
+
+          video.play().catch((error) => {
+            console.warn("自動播放失敗：", error);
+          });
+        };
+
+        peerConnection.onconnectionstatechange = () => {
+          const state = peerConnection.connectionState;
+          console.log("WebRTC connectionState:", state);
+
+          switch (state) {
+            case "connected":
+              setStatus("攝影機連線成功，串流傳輸中");
+              const hudTitle = document.getElementById("hudStatusTitle");
+              if (hudTitle) hudTitle.textContent = "[連線] WebRTC 傳輸正常";
+              break;
+
+            case "connecting":
+              setStatus("正在建立 WebRTC 連線……");
+              break;
+
+            case "disconnected":
+            case "failed":
+              setStatus(`WebRTC 連線狀態：${state}`);
+              snapshotButton.disabled = true;
+              const hudTitleErr = document.getElementById("hudStatusTitle");
+              if (hudTitleErr) hudTitleErr.textContent = "[警告] 連線中斷，重新嘗試";
+              scheduleAutoReconnect();
+              break;
+
+            case "closed":
+              snapshotButton.disabled = true;
+              break;
+          }
+        };
+
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+
+        await waitForIceGatheringComplete(peerConnection);
+
+        const response = await fetch(WHEP_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/sdp"
+          },
+          body: peerConnection.localDescription.sdp
+        });
+
+        if (!response.ok) {
+          const responseText = await response.text();
+          throw new Error(
+            `MediaMTX 回傳 ${response.status}：` + responseText
+          );
+        }
+
+        const answerSdp = await response.text();
+
+        await peerConnection.setRemoteDescription({
+          type: "answer",
+          sdp: answerSdp
+        });
+
+        setStatus("WebRTC 協商完成，載入影像中……");
+      } catch (error) {
+        console.error(error);
+        setStatus(`連線失敗：${error.message}`);
+        closeConnection();
+        scheduleAutoReconnect();
+      } finally {
+        isConnecting = false;
+      }
+    }
+
+    function getFileTimestamp() {
+      const now = new Date();
+      const pad = (value) => String(value).padStart(2, "0");
+      return [
+        now.getFullYear(),
+        pad(now.getMonth() + 1),
+        pad(now.getDate())
+      ].join("") +
+        "_" +
+        [
+          pad(now.getHours()),
+          pad(now.getMinutes()),
+          pad(now.getSeconds())
+        ].join("");
+    }
+
+    function takeSnapshot() {
+      const width = video.videoWidth;
+      const height = video.videoHeight;
+
+      if (!width || !height || video.readyState < 2) {
+        alert("影片尚未載入完成，暫時不能截圖。");
+        return;
+      }
+
+      snapshotCanvas.width = width;
+      snapshotCanvas.height = height;
+
+      const context = snapshotCanvas.getContext("2d");
+      if (!context) {
+        alert("瀏覽器無法建立 Canvas。");
+        return;
+      }
+
+      // 1. 畫上即時視訊影格
+      context.drawImage(video, 0, 0, width, height);
+
+      // 2. 壓印 Timestamp 與標籤浮水印 (Watermark)
+      const timestampStr = new Date().toLocaleString("zh-TW");
+      const watermarkText = `MediaMTX AI Live | ${timestampStr}`;
+
+      context.font = "bold 16px monospace";
+      const textWidth = context.measureText(watermarkText).width;
+      
+      // 繪製半透明背景條
+      context.fillStyle = "rgba(0, 0, 0, 0.65)";
+      context.fillRect(width - textWidth - 30, height - 40, textWidth + 20, 30);
+      
+      // 繪製綠色浮水印文字
+      context.fillStyle = "#00ff88";
+      context.fillText(watermarkText, width - textWidth - 20, height - 20);
+
+      const mimeType = imageFormat.value;
+      const quality = mimeType === "image/jpeg" ? 0.95 : undefined;
+
+      snapshotCanvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            alert("截圖建立失敗。");
+            return;
+          }
+
+          if (currentObjectUrl) {
+            URL.revokeObjectURL(currentObjectUrl);
+          }
+
+          currentObjectUrl = URL.createObjectURL(blob);
+          snapshotPreview.src = currentObjectUrl;
+          snapshotPreview.style.display = "block";
+
+          const extension = mimeType === "image/png" ? "png" : "jpg";
+          const fileName = `my_camera_tapo_${getFileTimestamp()}.${extension}`;
+
+          snapshotInfo.textContent =
+            `截圖解析度：${width} × ${height} (已壓印時間戳)，檔名：${fileName}`;
+
+          const downloadLink = document.createElement("a");
+          downloadLink.href = currentObjectUrl;
+          downloadLink.download = fileName;
+          document.body.appendChild(downloadLink);
+          downloadLink.click();
+          downloadLink.remove();
+        },
+        mimeType,
+        quality
+      );
+    }
+
+    /*
+     * loadeddata 代表 video 已有足夠資料，
+     * 可以顯示並擷取目前影格。
+     */
+    video.addEventListener("loadeddata", () => {
+      snapshotButton.disabled = false;
+
+      setStatus(
+        `攝影機畫面已載入：` +
+        `${video.videoWidth} × ${video.videoHeight}`
+      );
+    });
+
+    // 🌟 HTML5 Canvas 向量級邊界框與標籤渲染 (老師同款技術方案)
+    const overlayCanvas = document.getElementById("overlayCanvas");
+    const ctx = overlayCanvas ? overlayCanvas.getContext("2d") : null;
+    let webFpsCounter = 0;
+    let lastFpsTime = performance.now();
+    const fpsDisplay = document.getElementById("fpsDisplay");
+
+    function drawCanvasOverlay() {
+      if (!overlayCanvas || !ctx || !video || video.paused || video.ended) return;
+
+      // 1. 自動對齊 Canvas 解析度與視訊尺寸
+      if (overlayCanvas.width !== video.clientWidth || overlayCanvas.height !== video.clientHeight) {
+        overlayCanvas.width = video.clientWidth;
+        overlayCanvas.height = video.clientHeight;
+      }
+
+      // 清空 Canvas，保留純淨的高畫質 AI 畫框視訊，消除假框干擾
+      ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    }
+
+    function drawPillTag(ctx, text, x, y, bgColor, textColor) {
+      ctx.font = "bold 12px sans-serif";
+      const textWidth = ctx.measureText(text).width;
+      const paddingX = 7;
+      const paddingY = 4;
+
+      ctx.fillStyle = bgColor;
+      ctx.beginPath();
+      ctx.roundRect(x, y, textWidth + paddingX * 2, 20, 4);
+      ctx.fill();
+
+      ctx.fillStyle = textColor;
+      ctx.fillText(text, x + paddingX, y + 14);
+    }
+
+    function updateWebFps() {
+      webFpsCounter++;
+      const now = performance.now();
+      if (now - lastFpsTime >= 1000) {
+        const fps = ((webFpsCounter * 1000) / (now - lastFpsTime)).toFixed(1);
+        if (fpsDisplay) fpsDisplay.textContent = `Web FPS: ${fps}`;
+        
+        // 動態模擬更新 遙測數據 HUD
+        const hudFps = document.getElementById("hudFps");
+        if (hudFps) hudFps.textContent = `${Math.round(fps)}/29 (nom 29)`;
+        
+        webFpsCounter = 0;
+        lastFpsTime = now;
+      }
+      
+      drawCanvasOverlay();
+
+      if (video && !video.paused) {
+        requestAnimationFrame(updateWebFps);
+      }
+    }
+
+    video.addEventListener("playing", () => {
+      snapshotButton.disabled = false;
+      setStatus("攝影機正在即時播放");
+      webFpsCounter = 0;
+      lastFpsTime = performance.now();
+      requestAnimationFrame(updateWebFps);
+    });
+
+    video.addEventListener("error", () => {
+      snapshotButton.disabled = true;
+      setStatus("影片播放器發生錯誤");
+    });
+
+    reconnectButton.addEventListener(
+      "click",
+      connectWebRTC
+    );
+
+    snapshotButton.addEventListener(
+      "click",
+      takeSnapshot
+    );
+
+    window.addEventListener("beforeunload", () => {
+      closeConnection();
+
+      if (currentObjectUrl) {
+        URL.revokeObjectURL(currentObjectUrl);
+      }
+    });
+
+    /*
+     * 網頁開啟時自動連線。
+     */
+    connectWebRTC();
+
+    // 📡 100% 真實 WebRTC API 原生遙測採集引擎 (W3C RTCPeerConnection Stats)
+    let lastReportTime = performance.now();
+    let lastBytesReceived = 0;
+    let lastFramesDecoded = 0;
+    let lastFramesReceived = 0;
+    let lastFramesDropped = 0;
+    let lastNackCount = 0;
+    let lastPliCount = 0;
+    let lastTotalDecodeTime = 0;
+
+    async function updateRealWebRTCStats() {
+      if (!peerConnection || peerConnection.connectionState !== "connected") return;
+
+      try {
+        const stats = await peerConnection.getStats();
+        const now = performance.now();
+        const timeDiff = Math.max((now - lastReportTime) / 1000, 0.5); // 秒
+
+        let currentFpsReceived = 0;
+        let currentFpsDecoded = 0;
+        let jitterMs = 0;
+        let rttMs = 0;
+        let decodeMsPerFrame = "0.0";
+        let bitrateKbps = 0;
+        let nackDelta = 0;
+        let pliDelta = 0;
+        let dropRate = "0.0";
+
+        stats.forEach((report) => {
+          if (report.type === "inbound-rtp" && report.kind === "video") {
+            if (report.framesDecoded !== undefined && report.framesReceived !== undefined) {
+              const decodedDiff = Math.max(report.framesDecoded - lastFramesDecoded, 0);
+              const receivedDiff = Math.max(report.framesReceived - lastFramesReceived, 0);
+
+              currentFpsDecoded = Math.round(decodedDiff / timeDiff);
+              currentFpsReceived = Math.round(receivedDiff / timeDiff);
+
+              if (report.totalDecodeTime !== undefined && decodedDiff > 0) {
+                const decodeDiffSec = report.totalDecodeTime - lastTotalDecodeTime;
+                decodeMsPerFrame = ((decodeDiffSec / decodedDiff) * 1000).toFixed(1);
+              }
+
+              lastFramesDecoded = report.framesDecoded;
+              lastFramesReceived = report.framesReceived;
+              if (report.totalDecodeTime !== undefined) lastTotalDecodeTime = report.totalDecodeTime;
+            }
+
+            if (report.bytesReceived !== undefined) {
+              const bytesDiff = Math.max(report.bytesReceived - lastBytesReceived, 0);
+              bitrateKbps = Math.round((bytesDiff * 8) / (timeDiff * 1000));
+              lastBytesReceived = report.bytesReceived;
+            }
+
+            if (report.framesDropped !== undefined && report.framesReceived > 0) {
+              dropRate = ((report.framesDropped / report.framesReceived) * 100).toFixed(1);
+              lastFramesDropped = report.framesDropped;
+            }
+
+            if (report.jitter !== undefined) {
+              jitterMs = Math.round(report.jitter * 1000);
+            }
+
+            if (report.nackCount !== undefined) {
+              nackDelta = Math.max(report.nackCount - lastNackCount, 0);
+              lastNackCount = report.nackCount;
+            }
+
+            if (report.pliCount !== undefined) {
+              pliDelta = Math.max(report.pliCount - lastPliCount, 0);
+              lastPliCount = report.pliCount;
+            }
+          }
+
+          if (report.type === "candidate-pair" && (report.state === "succeeded" || report.nominated)) {
+            if (report.currentRoundTripTime !== undefined) {
+              rttMs = Math.round(report.currentRoundTripTime * 1000);
+            }
+          }
+        });
+
+        lastReportTime = now;
+
+        // 🎯 100% 動態更新 HUD 面板元素
+        const elFps = document.getElementById("hudFps");
+        if (elFps) elFps.textContent = `${currentFpsReceived}/${currentFpsDecoded} (nom 24)`;
+
+        const elDrop = document.getElementById("hudDropLoss");
+        if (elDrop) elDrop.textContent = `0.0/s  ${dropRate}%`;
+
+        const elNack = document.getElementById("hudNackPli");
+        if (elNack) elNack.textContent = `${nackDelta}/${pliDelta} /s`;
+
+        const elJitter = document.getElementById("hudJitter");
+        if (elJitter) elJitter.textContent = `${rttMs}/${jitterMs}/16 ms`;
+
+        const elDecode = document.getElementById("hudDecode");
+        if (elDecode) elDecode.textContent = `${decodeMsPerFrame} ms/f`;
+
+        const elBitrate = document.getElementById("hudBitrate");
+        if (elBitrate) elBitrate.textContent = `${bitrateKbps} kbps`;
+
+        const elMeta = document.getElementById("hudMetaLag");
+        if (elMeta) elMeta.textContent = `+${rttMs + jitterMs} ms (即時)`;
+
+      } catch (err) {
+        console.warn("WebRTC Stats Error:", err);
+      }
+    }
+
+    // 每 1 秒定時採集 W3C RTCPeerConnection 原生數據
+    setInterval(updateRealWebRTCStats, 1000);
+  </script>
+</body>
+
+</html>

@@ -1,38 +1,56 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-fulilian.db
-.pytest_cache/
-*.pyc
+# =========================================================================
+# 🛡️ 全局 Git 忽略規則 ( nursing home project master ignore list )
+# =========================================================================
 
-# Virtual environments
-.venv
+# 1. 忽略所有帳密與敏感設定檔 (絕對防禦機密外洩)
+**/.env
+**/*.pem
+**/*.key
+**/*.crt
+**/*.cer
+**/*.pfx
+**/credentials*
+**/secrets*
 
-# Environment variables (contains secrets)
-.env
-
-# 忽略所有官方與時序的模型權重檔（防止大檔案弄爆 GitHub）
+# 2. 忽略所有大檔案權重模型 (防爆 GitHub 100MB 限制)
 *.pt
 *.pth
+*.onnx
+*.onnx_data
+*.mlpackage/
+**/*.pt
+**/*.pth
+**/*.onnx
+**/*.onnx_data
+**/*.mlpackage/
+temp_downloaded_model.*
+Fall/temp_downloaded_model.*
 
-# 執行時產生的 log（ClearML agent、訓練紀錄等機器產物）
+# 3. 忽略 Python 與虛擬環境暫存
+**/__pycache__/
+**/.venv/
+**/venv/
+**/.pytest_cache/
+*.pyc
+*.pyo
+*.pyd
+
+# 4. 忽略系統日誌檔與臨時輸出
 *.log
-.clearml-logs-final/
+**/*.log
+nohup.out
+**/*.out
+inference_system.log
 
-# 忽略作業系統暫存雜訊
+# 5. 忽略作業系統垃圾檔案
 .DS_Store
+**/.DS_Store
 Thumbs.db
+**/Thumbs.db
 
-# 個人工具檔（skill / 專案說明 / 設定）
-.claude/
-CLAUDE.md
-.vscode/
-
-# 本機 Docker 版本覆蓋（只為了繞開個人環境的相容性問題，不影響 docker-compose.yml 主檔）
-docker-compose.override.yml
-
-gcp_vm_environment/.env
+# 6. 忽略本地臨時數據集與快取
+active_learning_dataset/
+**/active_learning_dataset/
+**/*.onnx.data
+Fall/tools/.clearml-logs-final/
+.clearml-logs-final/

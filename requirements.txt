@@ -1,0 +1,35 @@
+# ==============================================================================
+# 🏥 Smart Ward Active Learning MLOps Pipeline - Requirements
+# ==============================================================================
+
+# --- Environment Variables & Network Web Control ---
+python-dotenv             # 用於讀取 .env 檔案中的雲端憑證、資料庫與 Kafka 設定
+requests                  # 用於模擬瀏覽器登入與呼叫 Label Studio API 自動注入標註
+
+# --- Deep Learning, Computer Vision & Local VLM ---
+torch                     # PyTorch 核心深度學習框架 (用於 ActionTransformer 與張量序列運算)
+torchvision               # PyTorch 影像處理擴充套件
+ultralytics>=8.1.0        # YOLOv11 & RT-DETR/DEIM-DETR 核心推論與增量重訓套件
+numpy                     # 基礎矩陣運算與邊緣端影像資料流處理
+ollama                    # 本地端大模型驅動 SDK (用於調用 Qwen2.5-VL 進行影片二審判讀)
+
+# --- MLOps, Cloud Storage & Experiment Tracking ---
+boto3                     # AWS 官方 Python SDK (解鎖邊緣端直傳 S3 與自動化下載下沉對齊)
+clearml[s3]>=1.14.0       # MLOps 實驗追蹤核心，整合 [s3] 擴充以支援自動同步重訓模型至雲端
+
+# --- Database & Message Queue Drivers ---
+psycopg2-binary           # 用於安全連接 AWS RDS (PostgreSQL) 關聯式資料庫
+kafka-python-ng           # 用於讀取與寫入 Kafka 訊息佇列 (相容 Python 3.12+)
+
+# --- Database ORM & Security (Backend) ---
+sqlalchemy                # ORM 框架，用於對關聯式資料庫進行物件關係對應操作
+python-jose[cryptography] # JWT Token 簽名與解密驗證工具
+passlib[bcrypt]           # 密碼雜湊與安全比對工具
+python-multipart          # 允許 FastAPI 解析前端登入表單資料
+
+# --- Webhook & Local Gateway ---
+fastapi                   # 用於建立高吞吐量的 Webhook 監聽服務，對接 Label Studio 事件
+uvicorn                   # FastAPI 的高效能 ASGI Web 伺服器引擎
+
+# --- Computer Vision & Media Processing ---
+opencv-python             # OpenCV 核心影像與影片處理套件 (用於邊緣端影像流)

@@ -1,0 +1,29 @@
+[
+  {
+    "data": {
+      "image": "/data/local-files/?d=images/snapshot_101.jpg"
+    },
+    "predictions": [
+      {
+        "model_version": "RT-DETR-DEIM-V1",
+        "score": 0.65,
+        "result": [
+          {
+            "from_name": "label",
+            "to_name": "image",
+            "type": "rectanglelabels",
+            "value": {
+              "x": 38.0,
+              "y": 50.0,
+              "width": 20.0,
+              "height": 35.0,
+              "rectanglelabels": [
+                "person"
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

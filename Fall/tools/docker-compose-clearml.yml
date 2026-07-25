@@ -1,0 +1,116 @@
+version: '3.8'
+
+services:
+  clearml-redis:
+    image: redis:6.2-alpine
+    container_name: clearml-redis
+    restart: "no"
+    networks:
+      - clearml-backend
+
+  clearml-mongo:
+    image: mongo:5.0.26
+    container_name: clearml-mongo
+    restart: "no"
+    volumes:
+      - clearml-mongo-data-final:/data/db
+    networks:
+      - clearml-backend
+
+  clearml-elastic:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.9
+    container_name: clearml-elastic
+    restart: "no"
+    environment:
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    volumes:
+      - clearml-elastic-data-final:/usr/share/elasticsearch/data
+    networks:
+      - clearml-backend
+
+  clearml-apiserver:
+    image: clearml/server:latest
+    platform: linux/amd64
+    container_name: clearml-server-apiserver
+    restart: "no"
+    command:
+      - apiserver
+    environment:
+      - CLEARML_REDIS_SERVICE_HOST=clearml-redis
+      - CLEARML_REDIS_SERVICE_PORT=6379
+      - CLEARML_MONGODB_SERVICE_HOST=clearml-mongo
+      - CLEARML_MONGODB_SERVICE_PORT=27017
+      - CLEARML_ELASTIC_SERVICE_HOST=clearml-elastic
+      - CLEARML_ELASTIC_SERVICE_PORT=9200
+    depends_on:
+      - clearml-redis
+      - clearml-mongo
+      - clearml-elastic
+    ports:
+      - "8008:8008"
+    volumes:
+      - clearml-logs-final:/var/log/clearml
+      - clearml-data-final:/mnt/fileserver
+    networks:
+      clearml-backend:
+        aliases:
+          - apiserver
+
+  clearml-webserver:
+    image: clearml/server:latest
+    platform: linux/amd64
+    container_name: clearml-server-webserver
+    restart: "no"
+    command:
+      - webserver
+    # 💡 終極修正：將 webserver 的 environment 完全拿掉！
+    # 官方映像檔內建的 Nginx 預設就會去找名叫 "apiserver" 的主機，不需要自作聰明加給它。
+    depends_on:
+      - clearml-apiserver
+    ports:
+      - "8080:80"
+    networks:
+      - clearml-backend
+
+  clearml-fileserver:
+    image: clearml/server:latest
+    platform: linux/amd64
+    container_name: clearml-server-fileserver
+    restart: "no"
+    command:
+      - fileserver
+    environment:
+      - CLEARML_SERVER_API_SERVER_HOST=clearml-server-apiserver
+      - CLEARML_SERVER_API_SERVER_PORT=8008
+    ports:
+      - "8081:8081"
+    volumes:
+      - clearml-logs-final:/var/log/clearml
+      - clearml-data-final:/mnt/fileserver
+    networks:
+      clearml-backend:
+        aliases:
+          - fileserver
+
+volumes:
+  clearml-mongo-data-final:
+  clearml-elastic-data-final:
+  clearml-logs-final:
+  clearml-data-final:
+
+networks:
+  clearml-backend:
+    driver: bridge
+
+
+#「它是我們 MLOps 後台大腦（ClearML）的『一鍵鋼骨大樓建造圖紙』。」
+#如果要在本機建立一整套能夠記錄實驗、排隊重訓、管理資料的模型生命週期平台（ClearML），你必須安裝資料庫、快取系統、搜尋引擎、網頁伺服器等一堆複雜的軟體。如果一個個手動安裝，不僅會弄髒你的 Mac 系統，而且光是設定網路連線就會讓人發瘋。
+#這個檔案利用了 Docker 容器化技術，把這些繁雜的服務打包成 6 個「獨立貨櫃（Services）」，並讓它們在一秒內自動聯網並啟動：
+#clearml-redis：後台的「超快速臨時記憶區」（快取資料用）。
+#clearml-mongo：後台的「主資料庫」（儲存你的專案名稱、任務狀態、參數等結構化資料）。
+#clearml-elastic（Elasticsearch）：後台的「超級搜尋引擎」（讓你能快速搜尋過往的實驗紀錄）。
+#clearml-apiserver (Port 8008)：後台的「溝通樞紐」（負責接收你的 Python 程式碼和 Agent 傳送過來的資料）。
+#clearml-webserver (Port 8080)：後台的「網頁控制面板」（就是你瀏覽器打開 http://localhost:8080 時看見的超漂亮 ClearML 儀表板）。
+#clearml-fileserver (Port 8081)：後台的「檔案保險箱」（專門用來存放模型權重與訓練紀錄圖表）。

@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  label-studio:
+    image: heartexlabs/label-studio:latest
+    container_name: label-studio-compose
+    restart: "no"
+    ports:
+      - "8082:8080"
+    volumes:
+      - lsdata:/label-studio/data
+      # 🎯 將 Mac 本地的圖片與標記資料夾掛載至容器內
+      - /Users/albert/Documents/專案/AIPE03/Fall/active_learning_dataset:/label-studio/data/active_learning_dataset
+    environment:
+      # 🎯 啟用本地檔案服務，並將 Document Root 對齊掛載路徑
+      - LABEL_STUDIO_LOCAL_FILES_SERV_ENABLED=true
+      - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/data/active_learning_dataset
+    networks:
+      - tools_net
+
+  webhook-receiver:
+    image: python:3.13-slim
+    container_name: webhook-receiver-compose
+    restart: "no"
+    volumes:
+      - ../../:/app # 掛載整個 AIPE03 專案根目錄進容器
+      # 🎯 核心修正 1：將你 Mac 本機已經 init 成功、保證可連線的憑證直接共享給 Docker 內部
+      - ~/.clearml.conf:/root/clearml.conf:ro
+    working_dir: /app
+    command: >
+      sh -c "pip install --no-cache-dir fastapi uvicorn requests clearml boto3 opencv-python-headless numpy && 
+             python Fall/tools/webhook_receiver.py"
+    ports:
+      - "9000:9000"
+    networks:
+      - tools_net
+    # 🎯 核心修正 2：如果 Docker 內部 DNS 偶爾找不到服務名，直接在 container 內綁定 host 的 IP 映射
+    extra_hosts:
+      - "clearml-server-apiserver:host-gateway"
+      - "clearml-server-webserver:host-gateway"
+      - "clearml-server-fileserver:host-gateway"
+    environment:
+      - CLEARML_API_HOST=http://clearml-server-apiserver:8008
+      - CLEARML_WEB_HOST=http://clearml-server-webserver:8080
+      - CLEARML_FILES_HOST=http://clearml-server-fileserver:8081
+      # 🎯 核心修正 3：將你的開發憑證以環境變數形式再次鎖死，確保 SDK 絕對能讀取到權限
+      - CLEARML_API_ACCESS_KEY=clearml
+      - CLEARML_API_SECRET_KEY=clearml
+
+volumes:
+  lsdata:
+
+networks:
+  tools_net:
+    name: tools_default 
+    external: true
+
+
+#「它是我們 MLOps 飛輪的『智慧大腦（Label Studio）』與『即時中繼站（Webhook Receiver）』。」
+#這個 Docker Compose 設定檔，直接把我們這套系統最關鍵的「人工審核」與「自動點火」兩大模組在背景跑起來：
+#label-studio (Port 8082)：後台的「智慧病房標註控制台」。
+#你在瀏覽器打開 http://localhost:8082 看見的 Label Studio。
+#它是我們主動學習中的「審核與微調介面」，前線採集到的跌倒照片會傳到這裡，讓人工快速確認標註。
+#webhook-receiver (Port 9000)：後台的「自動化火星塞（監聽器）」。
+#這是你用 Python 寫成的背景監聽服務（運行 webhook_receiver.py）。
+#它的運行邏輯超級精準： 它直接掛載了你的整個專案目錄（/app），並且在容器啟動時，自動下載執行所需的套件，接著跑起監聽器。
+#它的核心使命： 守在 Port 9000 隨時盯著 Label Studio。當你在平台上點擊「提交標註（Completed）」時，它會立刻收到通知，並注入 ClearML 的開發憑證（clearml/clearml）向 ClearML 伺服器點火，啟動剛才第四個檔案（train_rt_detr_clearml.py）的重訓流程！

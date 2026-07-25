@@ -1,0 +1,28 @@
+[
+  {
+    "data": {
+      "image": "/data/local-files/?d=active_learning_dataset/images/snapshot_101.jpg"
+    },
+    "predictions": [
+      {
+        "model_version": "RT-DETR-DEIM-v2",
+        "result": [
+          {
+            "from_name": "label",
+            "to_name": "image",
+            "type": "rectanglelabels",
+            "value": {
+              "x": 38.0,
+              "y": 50.0,
+              "width": 20.0,
+              "height": 35.0,
+              "rectanglelabels": [
+                "person"
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+]
