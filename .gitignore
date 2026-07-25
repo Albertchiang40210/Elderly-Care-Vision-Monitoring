@@ -12,7 +12,7 @@
 **/credentials*
 **/secrets*
 
-# 2. 忽略所有大檔案權重模型 (防爆 GitHub 100MB 限制)
+# 2. 忽略所有大檔案權重模型與測試影片檔 (防爆 GitHub 100MB 限制與保護隱私)
 *.pt
 *.pth
 *.onnx
@@ -25,6 +25,15 @@
 **/*.mlpackage/
 temp_downloaded_model.*
 Fall/temp_downloaded_model.*
+*.mp4
+*.avi
+*.mov
+*.mkv
+**/*.mp4
+**/*.avi
+**/*.mov
+**/*.mkv
+Fall/test_demo/
 
 # 3. 忽略 Python 與虛擬環境暫存
 **/__pycache__/
