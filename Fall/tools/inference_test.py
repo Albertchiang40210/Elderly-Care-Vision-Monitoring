@@ -521,7 +521,7 @@ def camera_worker(camera_id, video_source):
                     response = triton_client.infer(model_name="yolo_pose", inputs=inputs, outputs=outputs)
                     raw_output = response.as_numpy("output0")
 
-                    parsed = parse_triton_yolo_pose(raw_output, img_w, img_h, conf_threshold=0.45)
+                    parsed = parse_triton_yolo_pose(raw_output, img_w, img_h, conf_threshold=0.30)
                     if parsed is not None:
                         mock_kpts = MockPoseKeypoints(parsed["xyn"])
                         mock_boxes = MockPoseBoxes(parsed["conf"], parsed["xywh"], parsed["xyxy"])
@@ -533,9 +533,9 @@ def camera_worker(camera_id, video_source):
                     print(f"⚠️ [{camera_id}] Triton YOLO Pose 異常 ({triton_err})，觸發本地 CPU 備援...")
             
             if not yolo_pose_success:
-                results_pose = yolo_pose_model(frame, verbose=False, conf=0.45, device=device)
+                results_pose = yolo_pose_model(frame, verbose=False, conf=0.30, device=device)
             
-            last_annotated_frame = results_pose[0].plot(boxes=True, labels=True, conf=0.45)
+            last_annotated_frame = results_pose[0].plot(boxes=True, labels=True, conf=0.30)
         
         # 非推論幀則直接沿用快取畫面，維持流暢刷新
         annotated_frame = last_annotated_frame.copy() if last_annotated_frame is not None else frame.copy()
@@ -653,7 +653,10 @@ def camera_worker(camera_id, video_source):
                             # 🚀 使用 Numba JIT 加速人體傾斜角度幾何學運算，節省 CPU 資源
                             body_angle = get_body_angle_jit(shoulder_x, shoulder_y, hip_x, hip_y)
                             if not (shoulder_x == 0 or hip_x == 0):
-                                if body_angle < 40.0 or (w_box / h_box) > 1.25: is_physically_lying = True
+                                aspect_ratio = w_box / (h_box + 1e-6)
+                                # 雙重校驗：傾斜角小於 40 度且寬高比 > 0.9 (防範直立彎腰誤觸)
+                                if body_angle < 40.0 and aspect_ratio > 0.9:
+                                    is_physically_lying = True
                         except Exception: pass
                             
                         if normal_h_reference is not None:
