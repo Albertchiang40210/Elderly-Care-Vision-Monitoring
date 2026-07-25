@@ -93,17 +93,25 @@ sleep 1
 # ─── 服務 1：啟動凱莉的 FastAPI 後端 ───
 echo "⚙️ 3/5 正在背景點火 FastAPI 後端服務 (Port 8000)..."
 cd "$KELLY_DIR"
-source .venv/bin/activate
+if [ -f "$KELLY_DIR/.venv/bin/activate" ]; then
+    source "$KELLY_DIR/.venv/bin/activate"
+else
+    source "$FALL_DIR/.venv/bin/activate"
+fi
 uvicorn main:app --reload --port 8000 > /dev/null 2>&1 &
-deactivate 
+deactivate >/dev/null 2>&1 || true
 sleep 2
 
 # ─── 服務 2：啟動凱莉的 Kafka 直通車 Consumer ───
 echo "⚙️ 4/5 正在背景點火 Kafka 數據接收器 (Consumer)..."
 cd "$KELLY_DIR"
-source .venv/bin/activate
+if [ -f "$KELLY_DIR/.venv/bin/activate" ]; then
+    source "$KELLY_DIR/.venv/bin/activate"
+else
+    source "$FALL_DIR/.venv/bin/activate"
+fi
 python kafka_consumer.py > /dev/null 2>&1 &
-deactivate 
+deactivate >/dev/null 2>&1 || true
 sleep 1
 
 # ─── 服務 3：啟動你的 VLM 異步審查大腦 ───
