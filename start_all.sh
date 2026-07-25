@@ -22,7 +22,8 @@ sleep 10
 # 2.5 自動在背景啟動 MediaMTX 與 FFmpeg RTSP 模擬推流
 echo "📡 [MediaMTX & RTSP] 正在自動啟動 MediaMTX 串流伺服器與影片推流..."
 pkill -f mediamtx >/dev/null 2>&1
-nohup mediamtx > "$BASE_DIR/mediamtx.log" 2>&1 &
+MEDIAMTX_CONF="$BASE_DIR/RTSP.MediaMTX_20260723/mediamtx(example).yml"
+nohup mediamtx "$MEDIAMTX_CONF" > "$BASE_DIR/mediamtx.log" 2>&1 &
 sleep 2
 
 TEST_VIDEO="$BASE_DIR/Fall/test_demo/test1.mp4"
