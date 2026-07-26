@@ -1,42 +1,41 @@
 version: '3.8'
 
 services:
-  # --- 1. Zookeeper (Kafka 的協調者) ---
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.3.0
-    container_name: nh-zookeeper
-    restart: "no"  # 💡 明確限制：開機或重啟時絕對不要自動偷跑
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-
-  # --- 2. Kafka Broker (訊息佇列核心) ---
-  kafka:
-    image: confluentinc/cp-kafka:7.3.0
-    container_name: nh-kafka
-    restart: "no"  # 💡 明確限制：開機或重啟時絕對不要自動偷跑
-    depends_on:
-      - zookeeper
+  # --- 1. 後端 API 服務 (FastAPI) ---
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nh-backend
+    restart: "no"
     ports:
-      - "9092:9092"
+      - "8000:8000"
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      - DB_HOST=${DB_HOST:-nh-postgres}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME:-aidb}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-ap-northeast-1}
+    volumes:
+      - ./Fall/active_learning_dataset:/app/Fall/active_learning_dataset
+      - ${AWS_CREDENTIALS_PATH:-~/.aws}:/root/.aws:ro
 
-  # --- 3. Kafka UI (網頁後台：組員沒做前端前，這就是你們的警報監控面板) ---
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    container_name: nh-kafka-ui
-    restart: "no"  # 💡 明確限制：開機或重啟時絕對不要自動偷跑
+  # --- 2. 前端服務 (React + Nginx 整合中控台) ---
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: nh-frontend
+    restart: "no"
     depends_on:
-      - kafka
+      - backend
     ports:
-      - "8080:8080"
-    environment:
-      KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      - "3000:80"  # 外部造訪通道路徑: http://localhost:3000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+networks:
+  default:
+    name: tools_default
+    external: true

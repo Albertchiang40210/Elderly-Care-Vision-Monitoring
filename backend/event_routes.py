@@ -5,6 +5,8 @@ import os
 from datetime import datetime
 from typing import Literal, Optional
 
+import boto3
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -32,7 +34,7 @@ def require_api_key(x_api_key: Optional[str] = Header(None)):
 class EventCreateRequest(BaseModel):
     device_id: int
     event_type: str
-    clip_path: str
+    clip_path: Optional[str] = ""
     detected_at: datetime
     snapshot_path: Optional[str] = None
     yolo_score: Optional[float] = None
@@ -138,15 +140,18 @@ async def verdict_event(
         raise HTTPException(status_code=409, detail="事件已被判定過")
 
     if body.verdict == "true_alarm":
-        # 真跌倒：必須同時指派照護員
-        if body.staff_id is None:
-            raise HTTPException(status_code=422, detail="判定真跌倒必須指派照護員（staff_id）")
-        staff = db.query(Staff).filter(Staff.staff_id == body.staff_id).first()
+        # 接手 / 判定真跌倒：若前端未傳 staff_id 則預設自動填入 1 號護理師
+        target_staff_id = body.staff_id if body.staff_id is not None else 1
+        staff = db.query(Staff).filter(Staff.staff_id == target_staff_id).first()
         if staff is None:
-            raise HTTPException(status_code=400, detail=f"照護員 {body.staff_id} 不存在")
+            # 建立預設測試照護員
+            staff = Staff(staff_id=1, staff_name="值班護理師", company_id=1)
+            db.add(staff)
+            db.commit()
+            db.refresh(staff)
         event.status = "in_progress"
         event.verdict = "true_alarm"
-        event.staff_id = body.staff_id
+        event.staff_id = staff.staff_id
     else:
         # 誤報：不用派人，直接結案（staff_id 留空）
         event.status = "resolved"
@@ -187,6 +192,133 @@ async def resolve_event(
     payload = serialize_event(event, device)
     pool.broadcast("event_updated", payload)
     return payload
+
+
+# ════════════════════════════════════════════════════════
+# GET /events/{event_id}/media（登入即可）：取得事件快照及影片 AWS S3 Presigned URL
+# ════════════════════════════════════════════════════════
+@router.get("/events/{event_id}/media")
+def get_event_media(
+    event_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    event = db.query(DetectEvent).filter(DetectEvent.event_id == event_id).first()
+    if event is None:
+        raise HTTPException(status_code=404, detail="事件不存在")
+    
+    clip_url = None
+    snapshot_url = None
+
+    # 初始化 S3 Client (帶入 ap-northeast-1 區域)
+    try:
+        s3 = boto3.client('s3', region_name=os.getenv("AWS_DEFAULT_REGION", "ap-northeast-1"))
+    except Exception:
+        s3 = None
+
+    def _resolve_s3(uri: str) -> Optional[str]:
+        if not uri or uri.strip() == "":
+            return None
+        if uri.startswith("http://") or uri.startswith("https://"):
+            return uri
+        if uri.startswith("s3://"):
+            # 💡 直接透過後端代理串流，避開瀏覽器 S3 Presigned HTTP 403 權限拒絕
+            return f"/api/events/{event_id}/video"
+        filename = uri.split("/")[-1]
+        return f"/api/images/{filename}"
+
+    clip_url = _resolve_s3(event.clip_path)
+    snapshot_url = _resolve_s3(event.snapshot_path)
+
+    return {
+        "clip_url": clip_url,
+        "snapshot_url": snapshot_url,
+    }
+
+
+# ════════════════════════════════════════════════════════
+# GET /events/{event_id}/video：安全串流 S3 事發影片
+# Safari 要求 Content-Length + Range（206）才肯播 <video>
+# ════════════════════════════════════════════════════════
+from fastapi import Request
+from fastapi.responses import Response, StreamingResponse
+
+@router.get("/events/{event_id}/video")
+def stream_event_video(
+    event_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    event = db.query(DetectEvent).filter(DetectEvent.event_id == event_id).first()
+    if event is None or not event.clip_path:
+        raise HTTPException(status_code=404, detail="影片不存在")
+
+    uri = event.clip_path
+    video_bytes: bytes | None = None
+
+    if uri.startswith("s3://"):
+        parts = uri.replace("s3://", "").split("/", 1)
+        if len(parts) == 2:
+            bucket, key = parts[0], parts[1]
+            try:
+                s3 = boto3.client('s3', region_name=os.getenv("AWS_DEFAULT_REGION", "ap-northeast-1"))
+                obj = s3.get_object(Bucket=bucket, Key=key)
+                video_bytes = obj['Body'].read()
+            except Exception as e:
+                print(f"S3 download error: {e}")
+                raise HTTPException(status_code=404, detail="無法下載 S3 影片")
+    else:
+        filename = uri.split("/")[-1]
+        local_path = os.path.join("/app/Fall/active_learning_dataset/images", filename)
+        if os.path.exists(local_path):
+            with open(local_path, "rb") as f:
+                video_bytes = f.read()
+
+    if video_bytes is None:
+        raise HTTPException(status_code=404, detail="找不到影片檔案")
+
+    total = len(video_bytes)
+    range_header = request.headers.get("range")
+
+    if range_header:
+        # 解析 Range: bytes=0-  或 bytes=0-1023
+        range_spec = range_header.replace("bytes=", "")
+        parts = range_spec.split("-")
+        start = int(parts[0]) if parts[0] else 0
+        end = int(parts[1]) if parts[1] else total - 1
+        end = min(end, total - 1)
+        chunk = video_bytes[start:end + 1]
+        return Response(
+            content=chunk,
+            status_code=206,
+            media_type="video/mp4",
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{total}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(len(chunk)),
+            },
+        )
+
+    return Response(
+        content=video_bytes,
+        status_code=200,
+        media_type="video/mp4",
+        headers={
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(total),
+        },
+    )
+
+
+
+# ════════════════════════════════════════════════════════
+# DELETE /events（公開/測試用）：清空所有歷史與未處理事件
+# ════════════════════════════════════════════════════════
+@router.delete("/events")
+def clear_all_events(db: Session = Depends(get_db)):
+    db.query(DetectEvent).delete()
+    db.commit()
+    return {"message": "已清空所有事件"}
 
 
 # ── SSE 專用驗證：EventSource 不能自訂 header，token 改放網址參數 ──
