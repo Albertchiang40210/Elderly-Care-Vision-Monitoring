@@ -6,7 +6,7 @@ services:
     container_name: nh-triton-server
     shm_size: '2gb' # 預留共享記憶體，防止大型影像模型推論時崩潰
     ports:
-      - "8000:8000" # HTTP 端口
+      - "8009:8000" # HTTP 端口
       - "8001:8001" # gRPC 端口 (inference_test.py 主要連線這個)
       - "8002:8002" # Metrics 監控端口
     volumes:

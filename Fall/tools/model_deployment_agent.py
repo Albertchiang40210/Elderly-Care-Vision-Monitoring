@@ -232,10 +232,14 @@ if __name__ == "__main__":
             else:
                 print("❌ 部署中斷，找不到可用的 ONNX 模型檔。")
             
-            # 🧹 清理暫存的所有本地暫存檔 (.pt 與 .onnx)
-            for file in [f"{local_temp_base}.pt", f"{local_temp_base}.onnx"]:
-                if os.path.exists(file):
-                    os.remove(file)
+            # 🧹 清理所有包含 temp_downloaded_model 的暫存檔
+            import glob
+            for temp_file in glob.glob(f"{local_temp_base}*"):
+                try:
+                    if os.path.isfile(temp_file):
+                        os.remove(temp_file)
+                except Exception:
+                    pass
             print("🧹 已清除本地所有暫存模型檔案。")
     else:
         print("❌ 無法取得最新模型路徑，部署中斷。")

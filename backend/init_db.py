@@ -6,9 +6,9 @@
 用法：
     python -m backend.init_db
 """
-from backend.core.database import SessionLocal, Base, engine
-from backend.core.models import Company, Location, Device, Staff, User
-from backend.core.security import hash_password
+from database import SessionLocal, Base, engine
+from models import Company, Location, Device, Staff, User
+from security import hash_password
 
 
 def create_tables():
@@ -37,15 +37,26 @@ def seed_demo_data(db):
     else:
         print("區域已存在，略過")
 
-    if db.query(Device).first() is None:
-        # 查出剛種的區域編號，裝置掛上對應的 location_id
-        loc_ids = {l.location_name: l.location_id for l in db.query(Location).all()}
-        db.add(Device(device_name="交誼廳-01", location_id=loc_ids.get("交誼廳"), status="active", company_id=1))
-        db.add(Device(device_name="走廊-01", location_id=loc_ids.get("走廊"), status="active", company_id=1))
-        db.commit()
-        print("已建立示範裝置 2 台")
-    else:
-        print("裝置已存在，略過")
+    loc_ids = {l.location_name: l.location_id for l in db.query(Location).all()}
+    target_devices = [
+        {"device_id": 1, "device_name": "鏡頭 1 (交誼廳)", "location_name": "交誼廳"},
+        {"device_id": 2, "device_name": "鏡頭 2 (走廊 A)", "location_name": "走廊"},
+        {"device_id": 3, "device_name": "鏡頭 3 (走廊 B)", "location_name": "走廊"},
+        {"device_id": 4, "device_name": "鏡頭 4 (301號病房)", "location_name": "交誼廳"},
+        {"device_id": 5, "device_name": "鏡頭 5 (302號病房)", "location_name": "交誼廳"},
+        {"device_id": 6, "device_name": "鏡頭 6 (浴室入口)", "location_name": "交誼廳"},
+    ]
+    for dev in target_devices:
+        if db.query(Device).filter_by(device_id=dev["device_id"]).first() is None:
+            db.add(Device(
+                device_id=dev["device_id"],
+                device_name=dev["device_name"],
+                location_id=loc_ids.get(dev["location_name"]),
+                status="active",
+                company_id=1
+            ))
+            print(f"已建立示範裝置 id={dev['device_id']} ({dev['device_name']})")
+    db.commit()
 
     if db.query(Staff).first() is None:
         db.add(Staff(staff_name="照護員A", company_id=1))
@@ -57,25 +68,18 @@ def seed_demo_data(db):
 
 
 def seed_accounts(db):
-    """建立可以登入中控站的初始帳號（A001 管理員 / E001 陳雅文，密碼皆 123456）。
-
-    密碼一定要經過 bcrypt 雜湊才能存，所以不能直接用 SQL INSERT 明文。
-    種子帳號手動設 must_change_password=False，登入時不會被要求改密碼。
-    """
+    """建立可以登入中控站的初始帳號（A001 管理員 / E001 陳雅文，密碼皆 123456）。"""
     accounts = [
-        {"employee_id": "A001", "full_name": "系統管理員",
-         "email": "a001@fulilian.com", "role": "admin"},
-        {"employee_id": "E001", "full_name": "陳雅文",
-         "email": "e001@fulilian.com", "role": "staff"},
+        {"name": "A001", "email": "a001@fulilian.com", "role": "admin"},
+        {"name": "E001", "email": "e001@fulilian.com", "role": "staff"},
     ]
     for account in accounts:
-        if db.query(User).filter(User.employee_id == account["employee_id"]).first():
-            print(f"帳號 {account['employee_id']} 已存在，略過建立")
+        if db.query(User).filter(User.name == account["name"]).first():
+            print(f"帳號 {account['name']} 已存在，略過建立")
         else:
-            db.add(User(**account, password=hash_password("123456"),
-                        must_change_password=False))
+            db.add(User(**account, password=hash_password("123456")))
             db.commit()
-            print(f"帳號建立完成：{account['employee_id']} / 123456（role: {account['role']}）")
+            print(f"帳號建立完成：{account['name']} / 123456（role: {account['role']}）")
 
 
 if __name__ == "__main__":

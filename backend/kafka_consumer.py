@@ -14,7 +14,7 @@ load_dotenv()
 
 logger = logging.getLogger("kafka_consumer")
 
-KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
 EVENTS_URL = os.environ.get("EVENTS_URL", "http://localhost:8000/events")
 EVENT_API_KEY = os.environ.get("EVENT_API_KEY", "")
 TOPIC = "processed-reports"

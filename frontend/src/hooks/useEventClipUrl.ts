@@ -4,6 +4,7 @@ import { getEventMedia } from '../api/events';
 interface ClipResult {
   id: string | undefined;
   clipUrl: string | null;
+  snapshotUrl: string | null;
   error: boolean;
 }
 
@@ -15,6 +16,7 @@ export function useEventClipUrl(eventId: string | undefined) {
   const [result, setResult] = useState<ClipResult>({
     id: undefined,
     clipUrl: null,
+    snapshotUrl: null,
     error: false,
   });
 
@@ -22,29 +24,42 @@ export function useEventClipUrl(eventId: string | undefined) {
     if (!eventId) return;
 
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    getEventMedia(eventId)
-      .then((media) => {
-        if (cancelled) return;
-        setResult({ id: eventId, clipUrl: media.clip_url, error: false });
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setResult({ id: eventId, clipUrl: null, error: true });
-      });
+    function fetchMedia() {
+      getEventMedia(eventId!)
+        .then((media) => {
+          if (cancelled) return;
+          if (media.clip_url) {
+            setResult({ id: eventId, clipUrl: media.clip_url, snapshotUrl: media.snapshot_url, error: false });
+          } else {
+            // S3 上傳中，每 2 秒輪詢直到影片就緒
+            setResult((prev) => ({ ...prev, id: eventId, snapshotUrl: media.snapshot_url, error: false }));
+            timer = setTimeout(fetchMedia, 2000);
+          }
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setResult({ id: eventId, clipUrl: null, snapshotUrl: null, error: true });
+        });
+    }
+
+    fetchMedia();
 
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [eventId]);
 
   if (!eventId) {
-    return { clipUrl: null, loading: false, error: false };
+    return { clipUrl: null, snapshotUrl: null, loading: false, error: false };
   }
 
   const loading = result.id !== eventId;
   return {
     clipUrl: loading ? null : result.clipUrl,
+    snapshotUrl: loading ? null : result.snapshotUrl,
     loading,
     error: loading ? false : result.error,
   };

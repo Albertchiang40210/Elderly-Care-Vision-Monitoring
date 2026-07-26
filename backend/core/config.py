@@ -17,11 +17,14 @@ load_dotenv()  # 讀 repo 根目錄的 .env，讓底下的 os.getenv() 抓得到
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 
-# ── 資料庫（PostgreSQL / AWS RDS）────────────────────────
-# 格式是 SQLAlchemy 規定的：驅動程式://帳號:密碼@主機:埠號/資料庫名稱
+import urllib.parse
+
+db_pass_raw = os.getenv('DB_PASSWORD', '')
+db_pass_encoded = urllib.parse.quote_plus(db_pass_raw, safe='') if db_pass_raw else ''
+
 DATABASE_URL = (
     f"postgresql+psycopg2://"
-    f"{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
+    f"{os.getenv('DB_USER')}:{db_pass_encoded}"
     f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
 )
 

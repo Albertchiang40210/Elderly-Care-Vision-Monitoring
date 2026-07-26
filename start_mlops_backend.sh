@@ -8,6 +8,8 @@ cd "$(dirname "$0")"
 
 # 1. 徹底清理上一次殘留的舊環境（強制 down 掉所有容器與殘留網路）
 echo "🔌 正在強制清理舊有 Docker 運算服務..."
+docker rm -f nh-zookeeper nh-kafka nh-kafka-ui nh-backend nh-frontend >/dev/null 2>&1
+docker compose down >/dev/null 2>&1
 docker compose -f Fall/tools/docker-compose-label.yml down >/dev/null 2>&1
 docker compose -f Fall/tools/docker-compose-triton.yml down >/dev/null 2>&1
 docker compose -f Fall/tools/docker-compose-kafka.yml down >/dev/null 2>&1
@@ -29,6 +31,7 @@ echo "🚀 正在啟動運算基礎設施..."
 docker compose -f Fall/tools/docker-compose-clearml.yml up -d
 docker compose -f Fall/tools/docker-compose-kafka.yml up -d
 docker compose -f Fall/tools/docker-compose-triton.yml up -d
+docker compose up -d --build  # 啟動根目錄的 Kafka, Zookeeper, UI 以及前端（Nginx）容器
 
 # 稍等 2 秒，拉起高度依賴 tools_default 網路的 Label Studio
 sleep 2

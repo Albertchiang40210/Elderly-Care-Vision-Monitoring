@@ -49,6 +49,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.staticfiles import StaticFiles
+
+# 挂載本地快照與影片資料夾，供前端直接讀取最新即時擷取檔案
+images_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Fall", "active_learning_dataset", "images"))
+if not os.path.exists(images_dir):
+    images_dir = "/app/Fall/active_learning_dataset/images"
+os.makedirs(images_dir, exist_ok=True)
+app.mount("/images", StaticFiles(directory=images_dir), name="images")
+
 # 事件相關路由（POST /events、SSE、判定/結案）都在 event_routes.py
 app.include_router(event_router)
 

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { CloseIcon } from './icons';
 import { SuppressConfirmModal } from './SuppressConfirmModal';
 import { useEventClipUrl } from '../hooks/useEventClipUrl';
 import { EVENT_TYPE_LABEL } from '../types';
@@ -33,34 +34,51 @@ function formatMinutesSeconds(totalSeconds: number): string {
 // demo 素材：正式版改吃 activeAlert.stream_url（協定未定，先預留），檔案放 public/videos/fall-demo.mp4
 export const DEMO_VIDEO_SRC = '/videos/fall-demo.mp4';
 
+// 影片播完一次後，再等這麼久才自動關閉警示（給值班人員一點反應時間）。
+const AUTO_DISMISS_DELAY_MS = 3000;
+
 interface FullScreenAlertProps {
   alerts: CareEvent[];
   now: number;
   onAcknowledge: (event: CareEvent) => void;
   onSuppress: (event: CareEvent, label: FalseReportLabel, note: string) => Promise<void>;
+  onDismiss: (event: CareEvent) => void;
 }
 
-export function FullScreenAlert({ alerts, now, onAcknowledge, onSuppress }: FullScreenAlertProps) {
-  const [activeId, setActiveId] = useState(alerts[0]?.id);
+export function FullScreenAlert({ alerts, now, onAcknowledge, onSuppress, onDismiss }: FullScreenAlertProps) {
+  const [activeId, setActiveId] = useState<string | undefined>(undefined);
   const [failedVideoIds, setFailedVideoIds] = useState<Set<string>>(new Set());
   const [confirmStage, setConfirmStage] = useState<'idle' | 'confirming'>('idle');
   const [suppressModalOpen, setSuppressModalOpen] = useState(false);
+  const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const activeAlert = alerts.find((a) => a.id === activeId) ?? alerts[0];
+  const activeAlert = (activeId ? alerts.find((a) => a.id === activeId) : undefined) ?? alerts[alerts.length - 1] ?? alerts[0];
   const { clipUrl, loading: clipLoading } = useEventClipUrl(activeAlert?.id);
-
-  if (!activeAlert) return null;
-
-  const videoSrc = clipUrl ?? DEMO_VIDEO_SRC;
-  const videoError = failedVideoIds.has(activeAlert.id);
+  const mediaSrc = clipUrl;
+  const videoError = failedVideoIds.has(activeAlert.id) || !mediaSrc;
 
   async function handleSuppressConfirm(label: FalseReportLabel, note: string) {
     await onSuppress(activeAlert, label, note);
     setSuppressModalOpen(false);
   }
 
+  function handleVideoEnded() {
+    if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+    dismissTimerRef.current = setTimeout(() => onDismiss(activeAlert), AUTO_DISMISS_DELAY_MS);
+  }
+
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-4 overflow-y-auto bg-[var(--overlay)] p-4 sm:p-6">
+      {/* 手動關閉：叉掉目前這筆警示，不做任何判定 */}
+      <button
+        type="button"
+        onClick={() => onDismiss(activeAlert)}
+        aria-label="關閉警示"
+        className="absolute top-4 right-4 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--bg-surface)] text-[var(--text-secondary)] shadow-sm transition-colors duration-150 hover:bg-[var(--bg-surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
+      >
+        <CloseIcon className="h-5 w-5" aria-hidden="true" />
+      </button>
+
       <div className="flex w-full max-w-3xl min-h-0 flex-col overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-4 shadow-sm sm:p-6">
         {/* 標頭：鏡頭名稱＋事件類型標籤（跌倒／潛在危險，依類型變色）（左）／發生時間（右） */}
         <div className="flex items-start justify-between gap-3">
@@ -86,22 +104,26 @@ export function FullScreenAlert({ alerts, now, onAcknowledge, onSuppress }: Full
         <div className="mt-4 aspect-video max-h-[55vh] w-full overflow-hidden rounded-xl bg-[var(--bg-surface-2)]">
           {clipLoading ? (
             <div className="flex h-full items-center justify-center">
-              <span className="text-[var(--text-muted)]">載入中</span>
+              <span className="text-[var(--text-muted)]">載入中...</span>
             </div>
-          ) : videoError ? (
+          ) : videoError || !mediaSrc ? (
             <div className="flex h-full items-center justify-center">
               <span className="text-[var(--text-muted)]">案件片段影像</span>
             </div>
           ) : (
             <video
-              key={activeAlert.id}
+              key={`${activeAlert.id}-${mediaSrc}`}
               className="h-full w-full object-contain"
-              src={videoSrc}
+              src={mediaSrc}
               autoPlay
               muted
-              loop
               playsInline
-              onError={() => setFailedVideoIds((prev) => new Set(prev).add(activeAlert.id))}
+              controls
+              onError={(e) => {
+                console.error('[FullScreenAlert Video Error]', mediaSrc, e);
+                setFailedVideoIds((prev) => new Set(prev).add(activeAlert.id));
+              }}
+              onEnded={handleVideoEnded}
             />
           )}
         </div>
@@ -170,7 +192,7 @@ export function FullScreenAlert({ alerts, now, onAcknowledge, onSuppress }: Full
         </div>
 
         <p className="mt-3 text-xs text-[var(--text-muted)]">
-          此警示不會自動消失；按「接手處理」即轉為「已接手」；標記「誤報」需二次確認。
+          影片播完會自動關閉，也可按右上角叉叉手動關閉；按「接手處理」即轉為「已接手」；標記「誤報」需二次確認。
         </p>
       </div>
 

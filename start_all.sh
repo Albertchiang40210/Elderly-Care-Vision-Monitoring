@@ -19,6 +19,12 @@ echo "🐳 [1/3] 正在啟動所有 Docker 容器服務 (Triton, Kafka, ClearML,
 echo "⏳ 等待 Docker 服務暖身 10 秒..."
 sleep 10
 
+# 2.2 確定 FastAPI 後端在 Docker 容器內運行 (nh-backend) 並啟動 Kafka 轉接站
+echo "⚙️ [FastAPI & Consumer] 啟動 Kafka 訊息轉接器 (processed-reports -> Postgres DB)..."
+pkill -f "python.*kafka_consumer.py" >/dev/null 2>&1
+(cd "$BASE_DIR/backend" && nohup "$BASE_DIR/Fall/.venv/bin/python" kafka_consumer.py > "$BASE_DIR/kafka_consumer.log" 2>&1 &)
+sleep 2
+
 # 2.5 自動在背景啟動 MediaMTX 與 FFmpeg RTSP 模擬推流
 echo "📡 [MediaMTX & RTSP] 正在自動啟動 MediaMTX 串流伺服器與影片推流..."
 pkill -f mediamtx >/dev/null 2>&1
@@ -39,11 +45,26 @@ echo "🔄 [2/3] 正在啟動主動學習同步警衛與 Webhook 接收端..."
 ./start_full_auto.sh
 
 # 4. 啟動第三步：最前線影像推論 Edge Worker
-echo "🎬 [3/3] 正在點火最前線推理與微服務 (純背景 / 無視窗 Headless 模式)..."
-nohup ./start_inference.sh --headless > "$BASE_DIR/inference_system.log" 2>&1 &
+echo "🎬 [3/3] 正在點火最前線推理與微服務 (前台即時輸出模式)..."
 echo "======================================================="
-echo "🎉 [點火完成] 所有服務已全數在背景高效率運行！"
-echo "🌐 您可以直接打開網頁觀看 WebRTC 串流："
-echo "   RTSP.MediaMTX_20260723/MediaMTX_web.html"
-echo "💡 查看推論日誌指令：tail -f inference_system.log"
+echo "🎉 [點火完成] 所有服務已全數在終端機啟動並即時印出日誌！"
+echo "💡 提示：按 [Ctrl + C] 可隨時一鍵自動停止所有系統服務。"
 echo "======================================================="
+
+# 設定按 Ctrl+C 時自動一鍵關閉清理所有推流與微服務
+cleanup() {
+    echo -e "\n🛑 偵測到中斷訊號 (Ctrl+C)，正在一鍵自動清理所有推流與微服務..."
+    pkill -f "python.*inference_test.py" >/dev/null 2>&1
+    pkill -f "ffmpeg.*rtsp://localhost:8554" >/dev/null 2>&1
+    pkill -f mediamtx >/dev/null 2>&1
+    pkill -f "python.*webhook_receiver.py" >/dev/null 2>&1
+    pkill -f "python.*s3_sync_worker.py" >/dev/null 2>&1
+    pkill -f "python.*vlm_worker.py" >/dev/null 2>&1
+    pkill -f "python.*deployment_agent.py" >/dev/null 2>&1
+    echo "✅ 所有推流與 AI 微服務已全數清理完畢！"
+    exit 0
+}
+trap cleanup SIGINT SIGTERM
+
+# 前台即時印出推論與 AI 運作 Log
+(cd "$BASE_DIR/Fall/tools" && "$BASE_DIR/Fall/.venv/bin/python" inference_test.py --headless)

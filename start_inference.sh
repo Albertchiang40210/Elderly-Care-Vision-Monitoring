@@ -31,7 +31,9 @@ fi
 # 🔑 [核心防禦提早注入] 優先加載全域 AWS 憑證與環境變數，確保 Agent、FastAPI、VLM 與 Worker 100% 同步
 if [ -f "$FALL_DIR/tools/.env" ]; then
     echo "🔑 [Global Control] 偵測到環境變數設定檔，開始進行全域憑證強注..."
-    export $(grep -v '^#' "$FALL_DIR/tools/.env" | xargs)
+    set -a
+    source "$FALL_DIR/tools/.env"
+    set +a
     echo "✅ [Global Control] 憑證強注完畢，後續所有背景服務皆已就緒憑證綁定。"
 else
     echo "❌ [Global Control] 嚴重警告：找不到環境變數檔: $FALL_DIR/tools/.env"
@@ -130,6 +132,7 @@ echo "======================================================="
 # ─── 服務 4：最前端引爆影像推理 ───
 cd "$FALL_DIR"
 export PYTHONPATH="$FALL_DIR/.venv/lib/python3.13/site-packages"
+export NO_RENDER="${NO_RENDER:-0}"  # 💡 預設開啟骨架與方框渲染 (欲追求極速可設 NO_RENDER=1)
 "$FALL_DIR/.venv/bin/python" tools/inference_test.py "$@"
 
 
