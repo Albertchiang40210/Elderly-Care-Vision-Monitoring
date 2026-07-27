@@ -8,12 +8,14 @@ enable-perf-measurement=1
 perf-measurement-interval-sec=5
 
 # -------------------------------------------------------------------------
-# 1. 視訊輸入源 (Input Source - MediaMTX RTSP Input)
+# 1. 視訊輸入源 (Input Source - 直接讀取 IP Camera 原始 RTSP 串流)
+# 對齊老師架構：IP Camera -> DeepStream
 # -------------------------------------------------------------------------
 [source0]
 enable=1
 # 4 = RTSP 串流
 type=4
+# 預設讀取真實 IP Camera 網址 (或 MediaMTX 模擬頻道)
 uri=rtsp://localhost:8554/cam_in
 num-sources=1
 gpu-id=0
