@@ -88,6 +88,8 @@ torchvision               # PyTorch 影像處理擴充套件
 ultralytics>=8.1.0        # YOLOv11 & RT-DETR/DEIM-DETR 核心推論與增量重訓套件
 numpy                     # 基礎矩陣運算與邊緣端影像資料流處理
 ollama                    # 本地端大模型驅動 SDK (用於調用 Qwen2.5-VL 進行影片二審判讀)
+langgraph                 # Agent 狀態圖編譯與事件生命週期狀態機框架 (用於 vlm_worker 護理長大腦)
+langchain-core            # LangGraph 基礎元件與 Prompt/Message 封裝
 boto3                     # AWS 官方 Python SDK (解鎖邊緣端直傳 S3 與自動化下載下沉對齊)
 clearml[s3]>=1.14.0       # MLOps 實驗追蹤核心，整合 [s3] 擴充以支援自動同步重訓模型至雲端
 psycopg2-binary           # 用於安全連接 AWS RDS (PostgreSQL) 關聯式資料庫
