@@ -108,9 +108,9 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props)
 
         // 骨架關鍵點 & 連線
         if (p.kps && p.kps.length >= 17) {
-          // 連線（青色）
-          ctx.strokeStyle = 'rgba(0,229,255,0.85)';
-          ctx.lineWidth = 2;
+          // 連線（鮮豔青色，線寬加粗至 4px）
+          ctx.strokeStyle = 'rgba(0, 229, 255, 0.95)';
+          ctx.lineWidth = 4;
           SKELETON.forEach(([a, b]) => {
             const ka = p.kps[a], kb = p.kps[b];
             if (!ka || !kb || (ka[0] === 0 && ka[1] === 0) || (kb[0] === 0 && kb[1] === 0)) return;
@@ -120,13 +120,16 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props)
             ctx.stroke();
           });
 
-          // 關鍵點（黃色）
+          // 關鍵點（明亮黃色圓點，半徑加大至 5px）
           p.kps.forEach(([kx, ky]) => {
             if (kx === 0 && ky === 0) return;
             ctx.beginPath();
-            ctx.arc(kx * W, ky * H, 3, 0, Math.PI * 2);
+            ctx.arc(kx * W, ky * H, 5, 0, Math.PI * 2);
             ctx.fillStyle = '#ffdd00';
             ctx.fill();
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 1;
+            ctx.stroke();
           });
         }
       });
