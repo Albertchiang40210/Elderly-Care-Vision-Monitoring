@@ -117,3 +117,13 @@ class DetectEvent(Base):  # 跌倒事件主表
 
     # 顯示事件位置走這個關聯（凍住的 location_id），不要繞去 device.location（那是裝置現況）
     location: Mapped[Optional["Location"]] = relationship("Location")
+
+# =========================================================================
+# 💡 [檔案說明與核心職責]
+# 「它是資料庫 ORM 模型 Schema 定義檔 (SQLAlchemy Database Models)。」
+# 本檔案定義 PostgreSQL 資料庫中所有實體資料表的 ORM 對應模型：
+# 1. User / Staff：使用者與醫護人員帳號、權限角色 (Admin/Staff) 與密碼雜湊。
+# 2. Company / Location / Device：機構、病房位置與邊緣鏡頭設備對應關係。
+# 3. Event：告警事件核心表（包含 YOLO 分數、VLM 二審摘要、影像路徑、判定結果 verdict 等）。
+# =========================================================================
+

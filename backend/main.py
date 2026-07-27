@@ -140,3 +140,13 @@ def delete_user(user_id: int, current_user: dict = Depends(require_admin), db: S
     db.delete(user)
     db.commit()
     return {"message": f"已刪除使用者 {user_id}"}
+
+# =========================================================================
+# 💡 [檔案說明與核心職責]
+# 「它是後端 RESTful API 服務的核心入口 (FastAPI Main Entry point)。」
+# 本檔案設定 FastAPI 應用程式實例、跨域 CORS 中間件與 API 路由掛載：
+# 1. 處理前端發起的身份驗證 (JWT Token 簽發與登入)。
+# 2. 提供即時告警事件查詢、護理報告拉取與設備狀態管理 API。
+# 3. 整合 Server-Sent Events (SSE) 實現後端推播告警至前端網頁。
+# =========================================================================
+

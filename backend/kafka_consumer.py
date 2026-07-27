@@ -98,3 +98,13 @@ def run():
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     run()
+
+# =========================================================================
+# 💡 [檔案說明與核心職責]
+# 「它是 Kafka 告警佇列消費者與 DB 自動儲存器 (Kafka DB Consumer)。」
+# 本腳本於背景持續輪詢 Kafka 的 processed-reports 通道：
+# 1. 自動讀取邊緣端與 VLM 護理長大腦處理完畢的告警與二審報告。
+# 2. 自動進行 JSON 解碼與資料結構格式化對齊。
+# 3. 透過 SQLAlchemy 寫入 PostgreSQL 資料庫（Event / Report 紀錄），供前端即時看板展示。
+# =========================================================================
+

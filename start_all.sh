@@ -106,3 +106,16 @@ trap cleanup SIGINT SIGTERM
 
 # 前台即時印出推論與 AI 運作 Log
 (cd "$BASE_DIR/Fall/tools" && "$BASE_DIR/Fall/.venv/bin/python" inference_test.py --headless)
+
+# =========================================================================
+# 💡 [檔案說明與核心職責]
+# 「它是本專案的『一鍵總點火開關 (Master Master Command Script)』。」
+# 執行本腳本將依序點連鎖啟動：
+# 1. start_mlops_backend.sh：啟動 Docker 基礎設施 (Kafka, ClearML, Label Studio, PostgreSQL)
+# 2. backend/kafka_consumer.py：啟動訊息轉接站將告警寫入資料庫
+# 3. MediaMTX & FFmpeg：啟動 RTSP 生產級影音串流中繼伺服器與推流
+# 4. start_full_auto.sh：啟動 VLM 護理長大腦 (Qwen2.5-VL)、Webhook 點火閥與 Watchdog
+# 5. Fall/tools/inference_test.py：前台引爆 OpenCV 多鏡頭邊緣 AI 巡邏推論引擎
+# 按下 [Ctrl + C] 會自動觸發 cleanup() 清理釋放所有背景進程與串流頻道。
+# =========================================================================
+
