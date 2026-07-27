@@ -33,8 +33,13 @@ nohup mediamtx "$MEDIAMTX_CONF" > "$BASE_DIR/mediamtx.log" 2>&1 &
 sleep 2
 
 TEST_VIDEO="$BASE_DIR/Fall/test_demo/test1.mp4"
-if [ -f "$TEST_VIDEO" ]; then
-    echo "🎥 正在背景掛載影片 RTSP 推流: $TEST_VIDEO -> rtsp://localhost:8554/cam_in"
+if ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -q "Iriun Camera"; then
+    echo "📱 偵測到 Iriun Camera (Pixel 手機連線中)，正在自動掛載手機實時 RTSP 推流..."
+    pkill -f "ffmpeg.*rtsp://localhost:8554" >/dev/null 2>&1
+    nohup ffmpeg -f avfoundation -framerate 30 -i "Iriun Camera" -c:v libx264 -preset ultrafast -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
+    sleep 2
+elif [ -f "$TEST_VIDEO" ]; then
+    echo "🎥 未偵測到手機相機，正在背景掛載預設影片 RTSP 推流: $TEST_VIDEO -> rtsp://localhost:8554/cam_in"
     pkill -f "ffmpeg.*rtsp://localhost:8554" >/dev/null 2>&1
     nohup ffmpeg -re -stream_loop -1 -i "$TEST_VIDEO" -c copy -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
     sleep 2

@@ -5,7 +5,7 @@ import { DevTestPanel } from '../components/DevTestPanel'; // DEV-TEST：測試�
 import { MonitorIcon } from '../components/icons';
 import { useEvents } from '../hooks/eventsContext';
 import { formatTime } from '../utils/time';
-import { ALERT_LOG_ACTION_LABEL, CAMERA_LABEL, type AlertLogEntry, type Camera, type CareEvent } from '../types';
+import { ALERT_LOG_ACTION_LABEL, type AlertLogEntry, type Camera, type CareEvent } from '../types';
 
 // 切換鏡頭畫面選單。桌機置於右欄頂端、手機緊接鏡頭下方，故抽成元件於兩處各渲染一次
 // （以 lg:hidden／hidden lg:block 控制，同一時間僅一個可見，不會重複讀屏）。
@@ -140,14 +140,19 @@ export function Home() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* 左 2/3 */}
         <div className="flex flex-col gap-6 lg:col-span-2">
-          {/* 即時影像：灰色占位框（不接真串流，比照全案影像慣例），左上角浮貼所選鏡頭名 */}
-          <div className="relative flex aspect-video w-full items-center justify-center rounded-2xl bg-[var(--bg-surface-2)] text-center text-sm text-[var(--text-muted)]">
+          {/* 即時影像：嵌入 MediaMTX 手機實時串流畫面 (WHEP) */}
+          <div className="relative flex aspect-video w-full overflow-hidden rounded-2xl bg-black border border-[var(--border)]">
             {selectedCamera && (
-              <span className="absolute left-3 top-3 rounded-md border border-[var(--border)] bg-[var(--bg-surface)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">
+              <span className="absolute left-3 top-3 z-10 rounded-md border border-[var(--border)] bg-[var(--bg-surface)]/80 px-2 py-0.5 text-xs text-[var(--text-primary)] backdrop-blur">
                 {selectedCamera.zone}（{selectedCamera.name}）
               </span>
             )}
-            {CAMERA_LABEL.LIVE_PLACEHOLDER}
+            <iframe
+              src="http://localhost:8889/cam_in"
+              className="h-full w-full border-0"
+              allow="autoplay; fullscreen"
+              title="即時監控畫面"
+            />
           </div>
 
           {/* 手機：切換選單緊接鏡頭下方（桌機隱藏，改由右欄頂端顯示） */}
