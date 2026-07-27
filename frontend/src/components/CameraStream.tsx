@@ -23,6 +23,7 @@ interface Person {
   bbox: [number, number, number, number]; // 像素座標 x1 y1 x2 y2
   conf: number;
   kps: [number, number][];               // 正規化 0-1
+  is_fall?: boolean;
 }
 
 interface Props {
@@ -94,15 +95,18 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props)
         const rx1 = nx1 * W, ry1 = ny1 * H;
         const rx2 = nx2 * W, ry2 = ny2 * H;
 
+        // 偵測框顏色：跌倒為紅色 (#ff334b)，無跌倒為綠色 (#00ff88)
+        const boxColor = p.is_fall ? '#ff334b' : '#00ff88';
+
         // 偵測框
-        ctx.strokeStyle = '#00ff88';
+        ctx.strokeStyle = boxColor;
         ctx.lineWidth = 2;
         ctx.strokeRect(rx1, ry1, rx2 - rx1, ry2 - ry1);
 
         // 信心度標籤
         ctx.fillStyle = 'rgba(0,0,0,0.65)';
         ctx.fillRect(rx1, ry1 - 18, 80, 18);
-        ctx.fillStyle = '#00ff88';
+        ctx.fillStyle = boxColor;
         ctx.font = 'bold 12px monospace';
         ctx.fillText(`person ${p.conf.toFixed(2)}`, rx1 + 4, ry1 - 4);
 

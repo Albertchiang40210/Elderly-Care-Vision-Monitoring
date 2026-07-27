@@ -746,7 +746,8 @@ def camera_worker(camera_id, video_source):
                     persons_out.append({
                         "bbox": norm_bbox,
                         "conf": round(float(_conf[_i]), 2),
-                        "kps":  _kp_list
+                        "kps":  _kp_list,
+                        "is_fall": bool(ever_detected_fall)
                     })
                 if persons_out:
                     threading.Thread(target=_push_detection, args=(persons_out,), daemon=True).start()
