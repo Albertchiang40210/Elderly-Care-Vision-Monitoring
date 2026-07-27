@@ -46,12 +46,12 @@ fi
 if [ "$USE_CAMERA" -eq 1 ]; then
     echo "📱 [Iriun Camera] 手機實時連線成功！正在自動掛載 Pixel 手機 RTSP 推流..."
     pkill -f "ffmpeg.*rtsp://localhost:8554" >/dev/null 2>&1
-    nohup ffmpeg -f avfoundation -framerate 30 -i "Iriun Camera" -c:v libx264 -preset ultrafast -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
+    nohup ffmpeg -f avfoundation -framerate 30 -i "Iriun Camera" -an -c:v libx264 -preset ultrafast -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
     sleep 2
 elif [ -f "$TEST_VIDEO" ]; then
     echo "🎥 降級使用預設影片 RTSP 推流: $TEST_VIDEO -> rtsp://localhost:8554/cam_in"
     pkill -f "ffmpeg.*rtsp://localhost:8554" >/dev/null 2>&1
-    nohup ffmpeg -re -stream_loop -1 -i "$TEST_VIDEO" -c copy -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
+    nohup ffmpeg -re -stream_loop -1 -i "$TEST_VIDEO" -an -c:v copy -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
     sleep 2
 fi
 
