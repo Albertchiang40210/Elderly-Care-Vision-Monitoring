@@ -70,8 +70,9 @@ for message in consumer:
     yolo_score = event_data.get("yolo_score", 0.0)
     confidence = f"{yolo_score * 100:.1f}%" if yolo_score > 0 else "0.0%"
     
-    image_filename = event_data.get("image_filename")
-    base_dir = "/Users/albert/Documents/專案/AIPE03/Fall"
+    # 動態計算 Fall 目錄路徑，支援所有作業系統（Windows / Mac / Linux）
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.getenv("FALL_DIR", os.path.abspath(os.path.join(script_dir, "..", "Fall")))
     
     if image_filename:
         img_path = os.path.join(base_dir, image_filename)

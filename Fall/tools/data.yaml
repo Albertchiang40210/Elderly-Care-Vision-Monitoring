@@ -1,4 +1,4 @@
-path: /Users/albert/Documents/專案/AIPE03/Fall/active_learning_dataset
+path: ../active_learning_dataset
 train: images
 val: images
 
@@ -17,6 +17,6 @@ names:
 #「去哪裡讀取新標註好的照片？」
 #「這張照片裡有哪些我需要認得的東西？」
 #這個檔案就是你寫給模型的地圖指南：
-#path / train / val：你用「絕對路徑」明確指引模型：「照片都在 /Users/albert/Documents/專案/AIPE03/Fall/active_learning_dataset 資料夾下的 images 裡面，給我去這裡讀書！」
+#path / train / val：使用相對路徑指引模型：「照片都在 active_learning_dataset 資料夾下的 images 裡面」
 #names：這是「類別映射表（Class Map）」，定義了模型要學會認得的 5 個病房核心物件。這跟你在 Label Studio 畫框時的標籤是 100% 完美對齊 的（0: 正常人/跌倒的人、1: 椅子、2: 沙發、3: 病床、4: 電視）。
 #有了它，模型才能正確讀取資料，並且知道自己框出來的物體到底叫什麼名字！

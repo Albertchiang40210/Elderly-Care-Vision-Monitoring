@@ -25,8 +25,8 @@ pkill -f "python.*kafka_consumer.py" >/dev/null 2>&1
 (cd "$BASE_DIR/backend" && nohup "$BASE_DIR/Fall/.venv/bin/python" kafka_consumer.py > "$BASE_DIR/kafka_consumer.log" 2>&1 &)
 sleep 2
 
-# 2.5 自動在背景啟動 MediaMTX 與 FFmpeg RTSP 模擬推流
-echo "📡 [MediaMTX & RTSP] 正在自動啟動 MediaMTX 串流伺服器與影片推流..."
+# 2.5 自動在背景啟動 MediaMTX 串流中繼伺服器 (支援業界真實 IP Camera 與本地模擬)
+echo "📡 [MediaMTX & RTSP] 正在啟動 MediaMTX 生產級串流伺服器與中繼轉接..."
 pkill -f mediamtx >/dev/null 2>&1
 MEDIAMTX_CONF="$BASE_DIR/RTSP.MediaMTX_20260723/mediamtx(example).yml"
 nohup mediamtx "$MEDIAMTX_CONF" > "$BASE_DIR/mediamtx.log" 2>&1 &
@@ -36,36 +36,46 @@ TEST_VIDEO="$BASE_DIR/Fall/test_demo/test1.mp4"
 USE_CAMERA=0
 CAM_NAME=""
 
-# 1. 優先測試 Iriun Camera (Pixel 手機，需要 framerate 60 模式)
-if ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -q "Iriun Camera"; then
-    echo "📱 偵測到 Iriun Camera 裝置，正在測試手機連線狀態..."
-    if ffmpeg -f avfoundation -pixel_format uyvy422 -framerate 60 -i "Iriun Camera" -t 1 -f null - >/dev/null 2>&1; then
-        USE_CAMERA=1
-        CAM_NAME="Iriun Camera"
-    else
-        echo "⚠️ Iriun Camera 尚未實態傳輸（請確認 Pixel 手機上的 Iriun App 已開啟並在 Mac 端 Iriun 視窗看到畫面）。"
-    fi
-fi
-
-# 2. 若手機未連線，嘗試備選 Mac 內建視訊相機 (Device 0)
-if [ "$USE_CAMERA" -eq 0 ]; then
-    if ffmpeg -f avfoundation -pixel_format uyvy422 -framerate 30 -i "0" -t 1 -f null - >/dev/null 2>&1; then
-        echo "💻 檢測到 Mac 內建視訊鏡頭可用，自動切換至本機攝影機串流..."
-        USE_CAMERA=1
-        CAM_NAME="0"
-    fi
-fi
-
-if [ "$USE_CAMERA" -eq 1 ]; then
-    echo "📱 [Live Camera] 相機實時連線成功 ($CAM_NAME)！正在自動掛載極低延遲 16:9 比例等比防變形 RTSP 推流..."
+# 🌟 業界生產模式 (Industry Production Mode)：若有設定真實 IP Camera RTSP 網址
+if [ -n "$RTSP_CAMERA_URL" ]; then
+    echo "🏢 [業界生產模式] 偵測到真實 IP Camera RTSP 網址: $RTSP_CAMERA_URL"
+    echo "📡 正在將 MediaMTX 直連 IP Camera 並轉碼轉播至 cam_in 頻道..."
     pkill -f "ffmpeg.*rtsp://localhost:8554" >/dev/null 2>&1
-    nohup ffmpeg -nostdin -f avfoundation -pixel_format uyvy422 -framerate 60 -i "$CAM_NAME" -vf "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
+    nohup ffmpeg -nostdin -rtsp_transport tcp -i "$RTSP_CAMERA_URL" -an -c:v copy -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
     sleep 2
-elif [ -f "$TEST_VIDEO" ]; then
-    echo "🎥 降級使用預設影片 RTSP 推流: $TEST_VIDEO -> rtsp://localhost:8554/cam_in"
-    pkill -f "ffmpeg.*rtsp://localhost:8554" >/dev/null 2>&1
-    nohup ffmpeg -nostdin -re -stream_loop -1 -i "$TEST_VIDEO" -an -c:v copy -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
-    sleep 2
+else
+    # 💻 開發與測試模式 (Dev & POC Mode)：本地相機 / 測試影片自動推流
+    # 1. 優先測試 Iriun Camera (Pixel 手機)
+    if ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -q "Iriun Camera"; then
+        echo "📱 偵測到 Iriun Camera 裝置，正在測試手機連線狀態..."
+        if ffmpeg -f avfoundation -pixel_format uyvy422 -framerate 60 -i "Iriun Camera" -t 1 -f null - >/dev/null 2>&1; then
+            USE_CAMERA=1
+            CAM_NAME="Iriun Camera"
+        else
+            echo "⚠️ Iriun Camera 尚未實態傳輸（請確認 Pixel 手機上的 Iriun App 已開啟）。"
+        fi
+    fi
+
+    # 2. 備選 Mac 內建視訊相機 (Device 0)
+    if [ "$USE_CAMERA" -eq 0 ]; then
+        if ffmpeg -f avfoundation -pixel_format uyvy422 -framerate 30 -i "0" -t 1 -f null - >/dev/null 2>&1; then
+            echo "💻 檢測到 Mac 內建視訊鏡頭可用，自動切換至本機攝影機串流..."
+            USE_CAMERA=1
+            CAM_NAME="0"
+        fi
+    fi
+
+    if [ "$USE_CAMERA" -eq 1 ]; then
+        echo "📱 [Live Camera] 相機實時連線成功 ($CAM_NAME)！開啟極低延遲 16:9 推流..."
+        pkill -f "ffmpeg.*rtsp://localhost:8554" >/dev/null 2>&1
+        nohup ffmpeg -nostdin -f avfoundation -pixel_format uyvy422 -framerate 60 -i "$CAM_NAME" -vf "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
+        sleep 2
+    elif [ -f "$TEST_VIDEO" ]; then
+        echo "🎥 [DEMO 模式] 降級使用預設影片 RTSP 推流: $TEST_VIDEO -> rtsp://localhost:8554/cam_in"
+        pkill -f "ffmpeg.*rtsp://localhost:8554" >/dev/null 2>&1
+        nohup ffmpeg -nostdin -re -stream_loop -1 -i "$TEST_VIDEO" -an -c:v copy -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
+        sleep 2
+    fi
 fi
 
 # 3. 啟動第二步：主動學習同步與監聽中樞
