@@ -82,8 +82,28 @@ fi
 echo "🔄 [2/3] 正在啟動主動學習同步警衛與 Webhook 接收端..."
 ./start_full_auto.sh
 
-# 4. 啟動第三步：最前線影像推論 Edge Worker
-echo "🎬 [3/3] 正在點火最前線推理與微服務 (前台即時輸出模式)..."
+# 4. 啟動第三步：最前線影像推論 Edge Worker (智慧自動偵測 N 卡 / 雙模式)
+HAS_NVIDIA_GPU=0
+if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+    HAS_NVIDIA_GPU=1
+elif command -v docker >/dev/null 2>&1 && docker info 2>&1 | grep -iq "nvidia"; then
+    HAS_NVIDIA_GPU=1
+fi
+
+# 若使用者未手動指定 ENGINE_MODE，則依據硬體自動決策
+if [ -z "$ENGINE_MODE" ]; then
+    if [ "$HAS_NVIDIA_GPU" -eq 1 ]; then
+        ENGINE_MODE="prod"
+        echo "🔍 [硬體檢測] 成功偵測到 NVIDIA GPU 顯卡！系統自動選擇 Prod 模式 (DeepStream)..."
+    else
+        ENGINE_MODE="dev"
+        echo "🔍 [硬體檢測] 未偵測到 NVIDIA GPU 顯卡 (Mac/CPU 環境)，系統自動選擇 Dev 模式 (Python)..."
+    fi
+else
+    echo "⚙️ [手動模式] 已指定 ENGINE_MODE=$ENGINE_MODE"
+fi
+
+echo "🎬 [3/3] 正在點火最前線推理與微服務 (模式: $ENGINE_MODE)..."
 echo "======================================================="
 echo "🎉 [點火完成] 所有服務已全數在終端機啟動並即時印出日誌！"
 echo "💡 提示：按 [Ctrl + C] 可隨時一鍵自動停止所有系統服務。"
@@ -92,6 +112,7 @@ echo "======================================================="
 # 設定按 Ctrl+C 時自動一鍵關閉清理所有推流與微服務
 cleanup() {
     echo -e "\n🛑 偵測到中斷訊號 (Ctrl+C)，正在一鍵自動清理所有推流與微服務..."
+    docker stop deepstream_pipeline >/dev/null 2>&1 || true
     pkill -f "python.*inference_test.py" >/dev/null 2>&1
     pkill -f "ffmpeg.*rtsp://localhost:8554" >/dev/null 2>&1
     pkill -f mediamtx >/dev/null 2>&1
@@ -104,8 +125,22 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM
 
-# 前台即時印出推論與 AI 運作 Log
-(cd "$BASE_DIR/Fall/tools" && "$BASE_DIR/Fall/.venv/bin/python" inference_test.py --headless)
+# 動態依據 ENGINE_MODE 選擇推理引擎
+if [ "$ENGINE_MODE" = "prod" ]; then
+    echo "🚀 [Prod 模式] 啟動 NVIDIA DeepStream 高效能 GPU Pipeline..."
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        docker run --gpus all --rm --net=host --name deepstream_pipeline \
+            -v "$BASE_DIR/deepstream_configs:/configs" \
+            nvcr.io/nvidia/deepstream:7.0-triton-multiarch \
+            deepstream-app -c /configs/deepstream_app_config.txt
+    else
+        echo "⚠️ 偵測到 Docker 無 GPU 執行權限，安全自動降級至 Dev 模式 (Python + OpenCV)..."
+        (cd "$BASE_DIR/Fall/tools" && "$BASE_DIR/Fall/.venv/bin/python" inference_test.py --headless)
+    fi
+else
+    echo "💻 [Dev 模式] 啟動 Mac 本地 Python 視覺推論引擎 (OpenCV + ONNX/Triton)..."
+    (cd "$BASE_DIR/Fall/tools" && "$BASE_DIR/Fall/.venv/bin/python" inference_test.py --headless)
+fi
 
 # =========================================================================
 # 💡 [檔案說明與核心職責]
