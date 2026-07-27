@@ -39,7 +39,7 @@ CAM_NAME=""
 # 1. 優先測試 Iriun Camera (Pixel 手機，需要 framerate 60 模式)
 if ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -q "Iriun Camera"; then
     echo "📱 偵測到 Iriun Camera 裝置，正在測試手機連線狀態..."
-    if ffmpeg -f avfoundation -framerate 60 -i "Iriun Camera" -t 1 -f null - >/dev/null 2>&1; then
+    if ffmpeg -f avfoundation -pixel_format uyvy422 -framerate 60 -i "Iriun Camera" -t 1 -f null - >/dev/null 2>&1; then
         USE_CAMERA=1
         CAM_NAME="Iriun Camera"
     else
