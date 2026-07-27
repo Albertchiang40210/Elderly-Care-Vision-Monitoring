@@ -148,7 +148,7 @@ export function Home() {
               </span>
             )}
             <iframe
-              src="http://localhost:8889/cam_in"
+              src="http://localhost:8889/cam_in/?autoplay=true&muted=true"
               className="h-full w-full border-0"
               allow="autoplay; fullscreen"
               title="即時監控畫面"
