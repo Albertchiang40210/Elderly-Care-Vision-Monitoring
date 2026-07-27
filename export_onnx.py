@@ -3,7 +3,7 @@ import os
 import shutil
 
 print("Step 1: 正在載入 rtdetr-l.pt 模型...")
-model = RTDETR("rtdetr-l.pt")
+model = RTDETR("Fall/rtdetr-l.pt")
 
 print("Step 2: 正在將模型轉成 ONNX 格式 (強制指定 opset=16)...")
 model.export(format="onnx", imgsz=[640, 640], dynamic=False, opset=16)
