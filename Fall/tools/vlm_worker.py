@@ -493,9 +493,7 @@ if __name__ == "__main__":
                 "detected_at": iso_detected_at,
                 "snapshot_path": result["img_path"],
                 "yolo_score": result["highest_score"],
-                "yolo_threshold": event_data.get("yolo_threshold", 0.5),
                 "vlm_summary": result["raw_report"],
-                "severity": event_data.get("severity", "high")
             }
             
             item_display = result['vlm_fall_reason_item']
