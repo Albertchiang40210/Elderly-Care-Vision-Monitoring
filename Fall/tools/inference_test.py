@@ -11,6 +11,7 @@ import json
 from datetime import datetime  
 import base64
 import subprocess
+import requests as _requests
 import boto3  # 👈 🚀 [完全體新增] 引入 AWS 官方 S3 SDK 套件
 try:
     import tritonclient.grpc as grpcclient  # 👈 🚀 [Triton 整合] 引入 Triton gRPC 套件
@@ -366,6 +367,22 @@ else:
 output_frames = {}
 frames_lock = threading.Lock()
 
+# ─── 即時偵測廣播（非阻塞背景推送）────────────────────
+_BACKEND_DETECT_URL = "http://localhost:8000/events/live-detection"
+_BACKEND_API_KEY = os.environ.get("EVENT_API_KEY", "nAK4h8ARAJMjCSoWJ-uErx2KyZKGDF-jcXqmMUpkM_o")
+
+def _push_detection(persons_list: list):
+    """在背景 thread 把這幀偵測結果推送給後端，前端 canvas 訂閱後畫框"""
+    try:
+        _requests.post(
+            _BACKEND_DETECT_URL,
+            json={"persons": persons_list},
+            headers={"X-API-Key": _BACKEND_API_KEY},
+            timeout=0.5
+        )
+    except Exception:
+        pass  # 推送失敗不影響主迴圈
+
 # =========================================================================
 # 📹 核心：多鏡頭平行巡邏的 Edge Worker (極速流暢優化版)
 # =========================================================================
@@ -421,6 +438,7 @@ def camera_worker(camera_id, video_source):
     cached_act_confidence = 0.0
     vlm_triggered = False
     vlm_report = "Waiting for alert..."
+    consecutive_fall_frames = 0
     
     last_pose_feat = np.zeros(34, dtype=np.float32)
     has_seen_person = False
@@ -688,18 +706,14 @@ def camera_worker(camera_id, video_source):
                             shoulder_x = (kp[5][0] + kp[6][0]) / 2.0; shoulder_y = (kp[5][1] + kp[6][1]) / 2.0
                             hip_x = (kp[11][0] + kp[12][0]) / 2.0; hip_y = (kp[11][1] + kp[12][1]) / 2.0
                             
-                            # 🚀 使用 Numba JIT 加速人體傾斜角度幾何學運算，節省 CPU 資源
+                            # 🚀 [業界標準 1] 嚴格幾何判斷：肩臀角度傾斜近水平 (<25度) 且 寬高比 > 1.2
                             body_angle = get_body_angle_jit(shoulder_x, shoulder_y, hip_x, hip_y)
                             if not (shoulder_x == 0 or hip_x == 0):
                                 aspect_ratio = w_box / (h_box + 1e-6)
-                                # 雙重校驗：傾斜角小於 40 度且寬高比 > 0.9 (防範直立彎腰誤觸)
-                                if body_angle < 40.0 and aspect_ratio > 0.9:
+                                if body_angle < 25.0 and aspect_ratio > 1.2:
                                     is_physically_lying = True
                         except Exception: pass
-                            
-                        if normal_h_reference is not None:
-                            if (h_box / normal_h_reference) < 0.70 and y2 > (img_h * 0.5): is_occluded_fall = True
-                                
+
                         if bed_detector is not None:
                             is_leaving_bed = bed_detector.process(kp, bed_box_xyxy, img_h, is_physically_lying, producer)
                         if motion_detector is not None:
@@ -708,6 +722,36 @@ def camera_worker(camera_id, video_source):
                             is_chair_slipped = chair_slitter.process(kp, results_env, img_h, is_physically_lying, producer)
 
             except Exception: pass
+
+        # 實時推送偵測結果給前端 canvas（無額外推理負擔）
+        if results_pose and len(results_pose[0].keypoints) > 0:
+            try:
+                _conf = results_pose[0].boxes.conf.cpu().numpy()
+                _xyxy = results_pose[0].boxes.xyxy.cpu().numpy()
+                _kps  = results_pose[0].keypoints.xyn.cpu().numpy()  # 正規化座標 0-1
+                persons_out = []
+                for _i in range(len(_xyxy)):
+                    if _i < len(_conf) and _conf[_i] < 0.30: continue
+                    _kp_list = []
+                    if _kps.ndim == 3 and _i < _kps.shape[0]:
+                        for _kp in _kps[_i]:
+                            _kp_list.append([round(float(_kp[0]), 4), round(float(_kp[1]), 4)])
+                    
+                    norm_bbox = [
+                        round(float(_xyxy[_i][0] / img_w), 4),
+                        round(float(_xyxy[_i][1] / img_h), 4),
+                        round(float(_xyxy[_i][2] / img_w), 4),
+                        round(float(_xyxy[_i][3] / img_h), 4)
+                    ]
+                    persons_out.append({
+                        "bbox": norm_bbox,
+                        "conf": round(float(_conf[_i]), 2),
+                        "kps":  _kp_list
+                    })
+                if persons_out:
+                    threading.Thread(target=_push_detection, args=(persons_out,), daemon=True).start()
+            except Exception:
+                pass
 
         if not is_current_frame_valid and has_seen_person: current_pose_feat = last_pose_feat.copy()
 
@@ -756,12 +800,22 @@ def camera_worker(camera_id, video_source):
                 pred_class = cached_act_pred_class
                 act_confidence = cached_act_confidence
 
-        is_ai_thinking_fall = (pred_class == 0 and act_confidence > 0.35) if len(frame_window) == 30 else False
-        should_trigger_fall = False
+        # 🚀 [業界標準 2] AI 動作時序高門檻 (0.80) 判定
+        is_ai_thinking_fall = (pred_class == 0 and act_confidence > 0.80) if len(frame_window) == 30 else False
+        raw_fall_detected = False
         if has_seen_person:
-            if is_physically_lying or is_occluded_fall:  
-                if len(frame_window) < 30 or is_ai_thinking_fall or is_occluded_fall: should_trigger_fall = True
-            elif len(frame_window) == 30 and pred_class == 0 and act_confidence > 0.55: should_trigger_fall = True
+            if is_physically_lying and is_ai_thinking_fall:
+                raw_fall_detected = True
+            elif len(frame_window) == 30 and pred_class == 0 and act_confidence > 0.85:
+                raw_fall_detected = True
+
+        # 🚀 [業界標準 3] 影格連貫防去噪防線 (Debounce)：必須連續 15 影格 (約 0.5 秒) 穩定符合才允許發射警報
+        if raw_fall_detected:
+            consecutive_fall_frames += 1
+        else:
+            consecutive_fall_frames = max(0, consecutive_fall_frames - 1)
+
+        should_trigger_fall = (consecutive_fall_frames >= 15)
 
         if audio_engine is not None:
             should_trigger_fall, act_confidence, fusion_reason = audio_engine.listen_and_fuse(should_trigger_fall, act_confidence)

@@ -10,6 +10,8 @@ services:
     restart: "no"
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       - DB_HOST=${DB_HOST:-nh-postgres}
       - DB_PORT=${DB_PORT:-5432}
@@ -17,6 +19,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-testpassword}
       - DB_NAME=${DB_NAME:-aidb}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-ap-northeast-1}
+      - EVENT_API_KEY=${EVENT_API_KEY:-nAK4h8ARAJMjCSoWJ-uErx2KyZKGDF-jcXqmMUpkM_o}
     volumes:
       - ./Fall/active_learning_dataset:/app/Fall/active_learning_dataset
       - ${AWS_CREDENTIALS_PATH:-~/.aws}:/root/.aws:ro

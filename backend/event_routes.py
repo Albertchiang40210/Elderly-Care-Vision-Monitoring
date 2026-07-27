@@ -354,3 +354,60 @@ async def stream(current_user: dict = Depends(get_user_from_query_token)):
             pool.unregister(q)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+# ════════════════════════════════════════════════════════
+# 即時偵測廣播：POST /live-detection（推理引擎推送）
+#              GET  /live-detection/stream（前端 SSE 訂閱）
+# 只傳 bbox + keypoints，不落 DB，不影響其他流程
+# ════════════════════════════════════════════════════════
+import json as _json
+
+_detection_subscribers: list[asyncio.Queue] = []
+
+
+class LiveDetectionPayload(BaseModel):
+    camera: str = "cam_in"
+    persons: list  # [{bbox:[x1,y1,x2,y2], conf:float, kps:[[x,y,v]×17]}]
+
+
+@router.post("/events/live-detection", status_code=204)
+async def push_live_detection(payload: LiveDetectionPayload,
+                              x_api_key: str = Header(..., alias="X-API-Key")):
+    """推理引擎呼叫：把這幀的偵測結果廣播給所有前端訂閱者"""
+    expected_key = os.environ.get("EVENT_API_KEY", "nAK4h8ARAJMjCSoWJ-uErx2KyZKGDF-jcXqmMUpkM_o")
+    if x_api_key != expected_key:
+        raise HTTPException(status_code=403, detail="無效 API Key")
+    msg = f"data: {_json.dumps({'persons': payload.persons}, ensure_ascii=False)}\n\n"
+    dead = []
+    for q in _detection_subscribers:
+        try:
+            q.put_nowait(msg)
+        except asyncio.QueueFull:
+            dead.append(q)
+    for q in dead:
+        _detection_subscribers.remove(q)
+
+
+@router.get("/events/live-detection/stream")
+async def stream_live_detection():
+    """前端訂閱：SSE 即時接收每幀 bbox + keypoints"""
+    q: asyncio.Queue = asyncio.Queue(maxsize=5)
+    _detection_subscribers.append(q)
+
+    async def generator():
+        try:
+            while True:
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=10)
+                    yield msg
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+        finally:
+            try:
+                _detection_subscribers.remove(q)
+            except ValueError:
+                pass
+
+    return StreamingResponse(generator(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

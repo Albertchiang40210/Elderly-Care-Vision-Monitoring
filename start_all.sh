@@ -59,7 +59,7 @@ fi
 if [ "$USE_CAMERA" -eq 1 ]; then
     echo "📱 [Live Camera] 相機實時連線成功 ($CAM_NAME)！正在自動掛載極低延遲 16:9 比例等比防變形 RTSP 推流..."
     pkill -f "ffmpeg.*rtsp://localhost:8554" >/dev/null 2>&1
-    nohup ffmpeg -nostdin -f avfoundation -pixel_format uyvy422 -framerate 60 -i "$CAM_NAME" -vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
+    nohup ffmpeg -nostdin -f avfoundation -pixel_format uyvy422 -framerate 60 -i "$CAM_NAME" -vf "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
     sleep 2
 elif [ -f "$TEST_VIDEO" ]; then
     echo "🎥 降級使用預設影片 RTSP 推流: $TEST_VIDEO -> rtsp://localhost:8554/cam_in"

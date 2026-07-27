@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import CameraStream from '../components/CameraStream';
 import { Link } from 'react-router-dom';
 import { getCameras } from '../api/cameras';
 import { DevTestPanel } from '../components/DevTestPanel'; // DEV-TEST：測試按鈕面板，移除測試功能時連同下方使用處一併刪除
@@ -140,20 +141,8 @@ export function Home() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* 左 2/3 */}
         <div className="flex flex-col gap-6 lg:col-span-2">
-          {/* 即時影像：嵌入 MediaMTX 手機實時串流畫面 (WHEP) */}
-          <div className="relative flex aspect-video w-full overflow-hidden rounded-2xl bg-black border border-[var(--border)]">
-            {selectedCamera && (
-              <span className="absolute left-3 top-3 z-10 rounded-md border border-[var(--border)] bg-[var(--bg-surface)]/80 px-2 py-0.5 text-xs text-[var(--text-primary)] backdrop-blur">
-                {selectedCamera.zone}（{selectedCamera.name}）
-              </span>
-            )}
-            <iframe
-              src="http://localhost:8889/cam_in/?autoplay=true&muted=true"
-              className="h-full w-full border-0"
-              allow="autoplay; fullscreen"
-              title="即時監控畫面"
-            />
-          </div>
+          {/* 即時影像：WebRTC WHEP 直連 cam_out（含 YOLO 偵測框與骨架） */}
+          <CameraStream cameraLabel={selectedCamera ? `${selectedCamera.zone}（${selectedCamera.name}）` : 'AI 即時監控'} />
 
           {/* 手機：切換選單緊接鏡頭下方（桌機隱藏，改由右欄頂端顯示） */}
           <div className="lg:hidden">
