@@ -34,19 +34,32 @@ sleep 2
 
 TEST_VIDEO="$BASE_DIR/Fall/test_demo/test1.mp4"
 USE_CAMERA=0
+CAM_NAME=""
+
+# 1. 優先測試 Iriun Camera (Pixel 手機，需要 framerate 60 模式)
 if ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -q "Iriun Camera"; then
     echo "📱 偵測到 Iriun Camera 裝置，正在測試手機連線狀態..."
-    if ffmpeg -f avfoundation -framerate 30 -i "Iriun Camera" -t 1 -f null - >/dev/null 2>&1; then
+    if ffmpeg -f avfoundation -framerate 60 -i "Iriun Camera" -t 1 -f null - >/dev/null 2>&1; then
         USE_CAMERA=1
+        CAM_NAME="Iriun Camera"
     else
-        echo "⚠️ Iriun Camera 尚未實時連線（請確認 Pixel 手機上的 Iriun App 已開啟）。"
+        echo "⚠️ Iriun Camera 尚未實態傳輸（請確認 Pixel 手機上的 Iriun App 已開啟並在 Mac 端 Iriun 視窗看到畫面）。"
+    fi
+fi
+
+# 2. 若手機未連線，嘗試備選 Mac 內建視訊相機 (Device 0)
+if [ "$USE_CAMERA" -eq 0 ]; then
+    if ffmpeg -f avfoundation -pixel_format uyvy422 -framerate 30 -i "0" -t 1 -f null - >/dev/null 2>&1; then
+        echo "💻 檢測到 Mac 內建視訊鏡頭可用，自動切換至本機攝影機串流..."
+        USE_CAMERA=1
+        CAM_NAME="0"
     fi
 fi
 
 if [ "$USE_CAMERA" -eq 1 ]; then
-    echo "📱 [Iriun Camera] 手機實時連線成功！正在自動掛載 Pixel 手機 RTSP 推流..."
+    echo "📱 [Live Camera] 相機實時連線成功 ($CAM_NAME)！正在自動掛載實時 RTSP 推流..."
     pkill -f "ffmpeg.*rtsp://localhost:8554" >/dev/null 2>&1
-    nohup ffmpeg -f avfoundation -framerate 30 -i "Iriun Camera" -an -c:v libx264 -preset ultrafast -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
+    nohup ffmpeg -f avfoundation -framerate 60 -i "$CAM_NAME" -an -c:v libx264 -preset ultrafast -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
     sleep 2
 elif [ -f "$TEST_VIDEO" ]; then
     echo "🎥 降級使用預設影片 RTSP 推流: $TEST_VIDEO -> rtsp://localhost:8554/cam_in"
