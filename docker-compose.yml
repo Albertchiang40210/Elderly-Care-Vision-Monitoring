@@ -13,8 +13,8 @@ services:
     environment:
       - DB_HOST=${DB_HOST:-nh-postgres}
       - DB_PORT=${DB_PORT:-5432}
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_USER=${DB_USER:-testuser}
+      - DB_PASSWORD=${DB_PASSWORD:-testpassword}
       - DB_NAME=${DB_NAME:-aidb}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-ap-northeast-1}
     volumes:
