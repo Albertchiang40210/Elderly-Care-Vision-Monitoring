@@ -1,8 +1,9 @@
 [
-  { "id": 1, "name": "鏡頭 1", "zone": "交誼廳", "floor": null, "stream_url": null, "stream_source": null, "status": "online" },
-  { "id": 2, "name": "鏡頭 2", "zone": "走廊 A", "floor": null, "stream_url": null, "stream_source": null, "status": "online" },
-  { "id": 3, "name": "鏡頭 3", "zone": "走廊 B", "floor": null, "stream_url": null, "stream_source": null, "status": "online" },
-  { "id": 4, "name": "鏡頭 4", "zone": "301 號病房", "floor": null, "stream_url": null, "stream_source": null, "status": "online" },
-  { "id": 5, "name": "鏡頭 5", "zone": "302 號病房", "floor": null, "stream_url": null, "stream_source": null, "status": "online" },
-  { "id": 6, "name": "鏡頭 6", "zone": "浴室入口", "floor": null, "stream_url": null, "stream_source": null, "status": "online" }
+  { "id": 1, "name": "鏡頭 1", "zone": "301 號病房", "floor": null, "stream_url": null, "stream_source": null, "status": "online" },
+  { "id": 2, "name": "鏡頭 2", "zone": "302 號病房", "floor": null, "stream_url": null, "stream_source": null, "status": "online" },
+  { "id": 3, "name": "鏡頭 3", "zone": "303 號病房", "floor": null, "stream_url": null, "stream_source": null, "status": "online" },
+  { "id": 4, "name": "鏡頭 4", "zone": "交誼廳 A區", "floor": null, "stream_url": null, "stream_source": null, "status": "online" },
+  { "id": 5, "name": "鏡頭 5", "zone": "走廊長廊", "floor": null, "stream_url": null, "stream_source": null, "status": "online" },
+  { "id": 6, "name": "鏡頭 6", "zone": "門口區域", "floor": null, "stream_url": null, "stream_source": null, "status": "online" },
+  { "id": 7, "name": "鏡頭 7", "zone": "護理站周邊", "floor": null, "stream_url": null, "stream_source": null, "status": "online" }
 ]
