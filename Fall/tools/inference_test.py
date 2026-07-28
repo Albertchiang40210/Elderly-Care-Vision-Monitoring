@@ -736,11 +736,16 @@ def camera_worker(camera_id, video_source):
                         round(float(_xyxy[_i][2] / img_w), 4),
                         round(float(_xyxy[_i][3] / img_h), 4)
                     ]
+                    # 🚀 [多人姿態個體化狀態標記] 連結每個人體獨立算出的 person_lying_flags
+                    indiv_fall = bool(ever_detected_fall)
+                    if _i < len(person_lying_flags):
+                        indiv_fall = indiv_fall or person_lying_flags[_i]
+
                     persons_out.append({
                         "bbox": norm_bbox,
                         "conf": round(float(_conf[_i]), 2),
                         "kps":  _kp_list,
-                        "is_fall": bool(ever_detected_fall)
+                        "is_fall": indiv_fall
                     })
                 if persons_out:
                     threading.Thread(target=_push_detection, args=(persons_out,), daemon=True).start()
