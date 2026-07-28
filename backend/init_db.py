@@ -29,22 +29,21 @@ def seed_demo_data(db):
     else:
         print("預設公司已存在，略過")
 
-    if db.query(Location).first() is None:
-        db.add(Location(location_name="交誼廳", company_id=1))
-        db.add(Location(location_name="走廊", company_id=1))
-        db.commit()
-        print("已建立區域 2 筆")
-    else:
-        print("區域已存在，略過")
+    locations = ["301 號病房", "302 號病房", "303 號病房", "交誼廳 A區", "走廊長廊", "門口區域", "護理站周邊"]
+    for loc_name in locations:
+        if db.query(Location).filter_by(location_name=loc_name).first() is None:
+            db.add(Location(location_name=loc_name, company_id=1))
+    db.commit()
 
     loc_ids = {l.location_name: l.location_id for l in db.query(Location).all()}
     target_devices = [
-        {"device_id": 1, "device_name": "鏡頭 1 (交誼廳)", "location_name": "交誼廳"},
-        {"device_id": 2, "device_name": "鏡頭 2 (走廊 A)", "location_name": "走廊"},
-        {"device_id": 3, "device_name": "鏡頭 3 (走廊 B)", "location_name": "走廊"},
-        {"device_id": 4, "device_name": "鏡頭 4 (301號病房)", "location_name": "交誼廳"},
-        {"device_id": 5, "device_name": "鏡頭 5 (302號病房)", "location_name": "交誼廳"},
-        {"device_id": 6, "device_name": "鏡頭 6 (浴室入口)", "location_name": "交誼廳"},
+        {"device_id": 1, "device_name": "鏡頭 1 (301 號病房)", "location_name": "301 號病房"},
+        {"device_id": 2, "device_name": "鏡頭 2 (302 號病房)", "location_name": "302 號病房"},
+        {"device_id": 3, "device_name": "鏡頭 3 (303 號病房)", "location_name": "303 號病房"},
+        {"device_id": 4, "device_name": "鏡頭 4 (交誼廳 A區)", "location_name": "交誼廳 A區"},
+        {"device_id": 5, "device_name": "鏡頭 5 (走廊長廊)", "location_name": "走廊長廊"},
+        {"device_id": 6, "device_name": "鏡頭 6 (門口區域)", "location_name": "門口區域"},
+        {"device_id": 7, "device_name": "鏡頭 7 (護理站周邊)", "location_name": "護理站周邊"},
     ]
     for dev in target_devices:
         if db.query(Device).filter_by(device_id=dev["device_id"]).first() is None:
