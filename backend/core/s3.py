@@ -45,7 +45,11 @@ def generate_presigned_url(s3_uri, expires=S3_URL_TTL):
     if parsed is None:
         return None
     bucket, key = parsed
-    return get_s3_client().generate_presigned_url(
-        "get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=expires,
-    )
+    try:
+        return get_s3_client().generate_presigned_url(
+            "get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=expires,
+        )
+    except Exception:
+        return None
+
 

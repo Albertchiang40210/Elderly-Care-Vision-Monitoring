@@ -29,11 +29,9 @@ DATABASE_URL = os.getenv("DATABASE_URL") or (
 )
 
 
-# AWS RDS 的根憑證，用來確認連到的是真的 AWS 而不是假冒的資料庫
-SSL_ROOT_CERT = str(BACKEND_DIR / "global-bundle.pem")
-
-# CI／測試環境設 1：跳過 import 當下的建表動作（雲端測試機連不到 AWS RDS）
+# CI／測試環境設 1：跳過 import 當下的建表動作
 SKIP_DB_INIT = os.getenv("SKIP_DB_INIT") == "1"
+
 
 
 # ── JWT（登入後發給前端的通行證）──────────────────────────
