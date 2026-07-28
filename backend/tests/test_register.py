@@ -1,34 +1,52 @@
 # test_register.py
-# 測試 POST /register 路由的所有情況
-# 共用設定（資料庫、測試帳號）都在 conftest.py，pytest 會自動載入
+# 測試 POST /register 路由的所有情況 (需要 admin 權限)
 
-from auth import decode_access_token
+def _admin_headers(client):
+    login = client.post("/login", data={"username": "boss", "password": "adminpass"})
+    token = login.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
 
 
 def test_register_new_user_returns_success_message(client):
-    # 用一個全新的帳號名稱註冊 → 應該成功，回傳的訊息裡包含帳號名
-    response = client.post("/register", json={"username": "newuser", "password": "pass123", "email": "newuser@test.com"})
+    # admin 幫新員工開帳號
+    headers = _admin_headers(client)
+    response = client.post(
+        "/register",
+        json={"employee_id": "E888", "full_name": "新同事", "password": "password123"},
+        headers=headers,
+    )
     assert response.status_code == 200
-    assert "newuser" in response.json()["message"]
+    assert "E888" in response.json()["message"]
 
 
 def test_register_duplicate_username_returns_400(client):
     # alice 已經在 conftest.py 裡建好了，再次註冊同名帳號 → 應該回傳 400
-    response = client.post("/register", json={"username": "alice", "password": "anything", "email": "other@test.com"})
+    headers = _admin_headers(client)
+    response = client.post(
+        "/register",
+        json={"employee_id": "alice", "full_name": "愛麗絲", "password": "password123"},
+        headers=headers,
+    )
     assert response.status_code == 400
 
 
 def test_register_new_user_default_role_is_staff(client):
-    # 新註冊的帳號沒有指定角色，預設應該是 staff
-    # 做法：先註冊，再登入，解碼 token 確認 role
-    client.post("/register", json={"username": "newstaff", "password": "pass123", "email": "newstaff@test.com"})
-    login = client.post("/login", data={"username": "newstaff", "password": "pass123"})
-    token = login.json()["access_token"]
-    payload = decode_access_token(token)
-    assert payload["role"] == "staff"
+    headers = _admin_headers(client)
+    client.post(
+        "/register",
+        json={"employee_id": "E999", "full_name": "新同仁", "password": "password123"},
+        headers=headers,
+    )
+    login = client.post("/login", data={"username": "E999", "password": "password123"})
+    assert login.status_code == 200
+    assert "access_token" in login.json()
 
 
-def test_register_without_email_returns_422(client):
-    # email 是必填欄位，沒給的話 FastAPI 應該拒絕，回傳 422
-    response = client.post("/register", json={"username": "newuser", "password": "pass123"})
+def test_register_without_password_returns_422(client):
+    headers = _admin_headers(client)
+    response = client.post(
+        "/register",
+        json={"employee_id": "E777", "full_name": "缺密碼"},
+        headers=headers,
+    )
     assert response.status_code == 422

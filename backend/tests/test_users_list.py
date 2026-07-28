@@ -19,7 +19,8 @@ def test_admin_lists_active_users(client):
     assert set(by_employee_id.keys()) == {"alice", "boss"}
     alice = by_employee_id["alice"]
     assert set(alice.keys()) == {"id", "employee_id", "full_name", "role"}  # 白名單四欄
-    assert alice["full_name"] == "愛麗絲"
+    assert alice["full_name"] == "Alice"
+
     assert alice["role"] == "staff"
 
 

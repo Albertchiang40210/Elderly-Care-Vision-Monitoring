@@ -9,7 +9,8 @@ def test_me_returns_username_and_role(client):
     token = login.json()["access_token"]
     response = client.get("/me", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
-    assert response.json() == {"username": "alice", "role": "staff"}
+    assert response.json() == {"employee_id": "alice", "full_name": "Alice", "role": "staff"}
+
 
 
 def test_me_without_token_returns_401(client):
