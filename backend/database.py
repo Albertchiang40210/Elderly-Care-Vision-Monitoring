@@ -23,9 +23,10 @@ DATABASE_URL = (
 db_host = os.getenv('DB_HOST', '')
 connect_args = {}
 if "amazonaws.com" in db_host:
+    cert_path = os.path.join(os.path.dirname(__file__), "global-bundle.pem")
     connect_args = {
         "sslmode": "verify-full",
-        "sslrootcert": "global-bundle.pem"
+        "sslrootcert": cert_path if os.path.exists(cert_path) else "global-bundle.pem"
     }
 
 engine = create_engine(
