@@ -15,7 +15,8 @@ def test_register_new_user_returns_success_message(client):
         json={"employee_id": "E888", "full_name": "新同事", "password": "password123"},
         headers=headers,
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
+
     assert "E888" in response.json()["message"]
 
 
