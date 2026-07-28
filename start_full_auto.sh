@@ -24,17 +24,14 @@ source $VENV_PATH
 
 # 🎯 🌟 [重要環境變數注入] 讀取地端 .env 憑證並導出，確保 Agent 咬單進程與 S3 權限對齊
 if [ -f "$PROJECT_PATH/tools/.env" ]; then
-    echo "🔑 已成功自 $PROJECT_PATH/tools/.env 導出最新的 AWS 與系統憑證環境變數！"
+    echo "🔑 已成功自 $PROJECT_PATH/tools/.env 導出最新的系統環境變數！"
     export $(grep -v '^#' "$PROJECT_PATH/tools/.env" | xargs)
-    export CLEARML_SDK__AWS__S3__KEY="$AWS_ACCESS_KEY_ID"
-    export CLEARML_SDK__AWS__S3__SECRET="$AWS_SECRET_ACCESS_KEY"
-    export CLEARML_SDK__AWS__S3__USE_CREDENTIALS_CHAIN="true"
 fi
 
 echo "[*] 正在啟動 Webhook 監聽器..."
 nohup python $TOOLS_PATH/webhook_receiver.py --port 9091 > $PROJECT_PATH/webhook.log 2>&1 &
 
-echo "[*] 正在啟動 S3 自動同步監控服務..."
+echo "[*] 正在啟動地端資料夾自動同步監控服務..."
 nohup python $TOOLS_PATH/watchdog.py > $PROJECT_PATH/watchdog.log 2>&1 &
 
 echo "[*] 正在啟動 ClearML Agent 異步咬單工人..."
@@ -54,9 +51,10 @@ echo "🔥 預打標完成，正在向 ClearML 佇列發射單一重訓任務...
 python $TOOLS_PATH/submit_task.py
 
 echo "------------------------------------------------"
-echo "💡 提示：此時您可以直接去刷新網頁，照片已經自動從 AWS 掉進 Label Studio 了！"
+echo "💡 提示：此時您可以直接去刷新網頁，照片已經自動地端同步進 Label Studio 了！"
 echo "你可以透過此指令查看背景重訓進度: tail -f $PROJECT_PATH/agent.log"
 echo "------------------------------------------------"
+
 
 
 

@@ -32,7 +32,7 @@ def load_dotenv(path: Path) -> None:
 env_file_path = BASE_DIR / ".env"
 if env_file_path.exists():
     load_dotenv(env_file_path)
-    print(f"✅ [SDK 中繼站] 已成功物理強注 AWS 憑證環境變數: {env_file_path}")
+    print(f"✅ [SDK 中繼站] 已成功物理強注環境變數: {env_file_path}")
 else:
     load_dotenv(PROJECT_ROOT / ".env")
 
@@ -67,13 +67,14 @@ def fail(msg: str) -> None:
 
 
 # =========================================================================
-# 🔄 🎯 從 AWS S3 自動下載最新「最強大腦」的閉環控制
+# 🔄 🎯 自動取得地端 ClearML 最新「最強大腦」的閉環控制
 # =========================================================================
 def get_latest_best_model_from_cloud():
     local_model_target = ACTIVE_MODEL_PATH
     os.makedirs(os.path.dirname(local_model_target), exist_ok=True)
     try:
-        print("\n🔍 正在連線至 ClearML 尋找 S3 上最新的 RT-DETR 'best' 模型...")
+        print("\n🔍 正在連線至 ClearML 尋找地端倉庫最新的 RT-DETR 'best' 模型...")
+
         models_found = Model.query_models(project_name="Fall_Detection", tags=["detr", "best"])
 
         if not models_found:
@@ -139,7 +140,8 @@ except Exception as e: print(f"⚠️ 探查專案介面失敗，使用預設對
 # =========================================================================
 # 🔥 ✨ 【第十九關完全體】修正 400 參數並強制引爆 S3 同步與實體化落地
 # =========================================================================
-print("\n🌐 [核心第十九關] 正在引爆 AWS S3 數據流，並強制實體化至專案任務列表...")
+print("\n🌐 [核心第十九關] 正在引爆地端數據流，並強制實體化至專案任務列表...")
+
 try:
     list_url = f"{LS_URL}/api/storages/s3?project={PROJECT_ID}"
     session.headers.update({"X-CSRFToken": session.cookies.get('csrftoken', '')})

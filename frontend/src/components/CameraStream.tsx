@@ -7,7 +7,9 @@
  */
 import { useEffect, useRef, useState } from 'react';
 
-const WHEP_URL = 'http://localhost:8889/cam_out/whep';
+const WHEP_URL = 'http://localhost:8889/cam_in/whep';
+
+
 
 const DETECT_SSE = '/api/events/live-detection/stream';
 
@@ -43,7 +45,8 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props)
   const [status, setStatus] = useState('正在初始化…');
   const [fps, setFps] = useState('--');
   const [hudVisible, setHudVisible] = useState(true);
-  const [showSkeleton, setShowSkeleton] = useState(false);
+  const [showSkeleton, setShowSkeleton] = useState(true);
+
 
   const lastUpdateRef = useRef<number>(0);
 
@@ -263,7 +266,8 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props)
             <span className="inline-block w-1.5 h-1.5 bg-[#00ff88] rounded-full"></span>
             [傳輸] WebRTC 即時監控
           </div>
-          <div className="text-cyan-300">cam_in WHEP</div>
+          <div className="text-cyan-300">cam_in WHEP (原始高清鏡頭)</div>
+
           <div className="text-gray-400">YOLO 骨架 <span className="text-cyan-400 font-semibold">每 4 幀</span></div>
           <div className="text-[#00ff88] mt-1 pt-1 border-t border-cyan-500/20 flex items-center gap-1">
             <span className="text-gray-400">[bbox]</span> 畫面時間軸對齊
