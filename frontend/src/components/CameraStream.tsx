@@ -7,7 +7,8 @@
  */
 import { useEffect, useRef, useState } from 'react';
 
-const WHEP_URL = 'http://localhost:8889/cam_in/whep';
+const WHEP_URL = 'http://localhost:8889/cam_out/whep';
+
 const DETECT_SSE = '/api/events/live-detection/stream';
 
 // COCO 17 關鍵點骨骼連線定義
