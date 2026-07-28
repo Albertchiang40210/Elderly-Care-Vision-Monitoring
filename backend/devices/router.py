@@ -4,9 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from backend.core.database import get_db
-from backend.core.dependencies import get_current_user, require_admin
-from backend.core.models import Device
+try:
+    from backend.core.database import get_db
+    from backend.core.dependencies import get_current_user, require_admin
+    from backend.core.models import Device
+except ModuleNotFoundError:
+    from core.database import get_db
+    from core.dependencies import get_current_user, require_admin
+    from core.models import Device
+
 
 router = APIRouter()
 

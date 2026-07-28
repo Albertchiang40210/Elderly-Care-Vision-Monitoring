@@ -1,3 +1,4 @@
-# backend/event_routes.py
-# Root shim forwarding to backend.events.router
-from backend.events.router import *
+try:
+    from backend.events.router import *
+except ModuleNotFoundError:
+    from events.router import *

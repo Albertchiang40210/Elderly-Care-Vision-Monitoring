@@ -1,17 +1,20 @@
-from fastapi import FastAPI, Depends, HTTPException 
-# 建立 app 本體, 依賴注入, 回傳 HTTP 錯誤給前端（例如 401、404）
-from fastapi.middleware.cors import CORSMiddleware 
-# 允許瀏覽器從其他網址呼叫這個 API（開發測試用）
-
-from fastapi.security import OAuth2PasswordRequestForm
-# 這是 FastAPI 內建的登入表單格式
-# 前端送來的 username + password 會被自動解析成這個物件
-
-from sqlalchemy.orm import Session
-from pydantic import BaseModel # 定義「前端送來的 JSON 長什麼樣子」，FastAPI 會自動驗證格式
-
 import os
+import sys
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
+from fastapi import FastAPI, Depends, HTTPException 
+from fastapi.middleware.cors import CORSMiddleware 
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from datetime import datetime, timezone
+
 
 from database import Base, engine, get_db
 from models import User
@@ -56,10 +59,17 @@ images_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Fall
 os.makedirs(images_dir, exist_ok=True)
 app.mount("/images", StaticFiles(directory=images_dir), name="images")
 
-from backend.events.router import router as event_router
-from backend.devices.router import router as devices_router
-from backend.users.router import router as users_router
-from backend.reports.router import router as reports_router
+try:
+    from backend.events.router import router as event_router
+    from backend.devices.router import router as devices_router
+    from backend.users.router import router as users_router
+    from backend.reports.router import router as reports_router
+except ModuleNotFoundError:
+    from events.router import router as event_router
+    from devices.router import router as devices_router
+    from users.router import router as users_router
+    from reports.router import router as reports_router
+
 
 app.include_router(event_router)
 app.include_router(devices_router)

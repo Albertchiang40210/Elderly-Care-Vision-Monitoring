@@ -5,12 +5,21 @@ from functools import lru_cache
 
 import boto3
 
-from backend.core.config import (
-    S3_ACCESS_KEY_ID,
-    S3_REGION,
-    S3_SECRET_ACCESS_KEY,
-    S3_URL_TTL,
-)
+try:
+    from backend.core.config import (
+        S3_ACCESS_KEY_ID,
+        S3_REGION,
+        S3_SECRET_ACCESS_KEY,
+        S3_URL_TTL,
+    )
+except ModuleNotFoundError:
+    from core.config import (
+        S3_ACCESS_KEY_ID,
+        S3_REGION,
+        S3_SECRET_ACCESS_KEY,
+        S3_URL_TTL,
+    )
+
 
 '''
 端點收到請求 → 呼叫函式 3 → 函式 3 用函式 2 拆地址、用函式 1 拿通行證 → 跟 AWS 換一張限時網址 → 回給前端播放。

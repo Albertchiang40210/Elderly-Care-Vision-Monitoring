@@ -5,9 +5,15 @@ import asyncio
 
 from sqlalchemy.orm import Session
 
-from backend.core.database import SessionLocal
-from backend.core.models import DetectEvent, Device, User
-from backend.events.sse import pool
+try:
+    from backend.core.database import SessionLocal
+    from backend.core.models import DetectEvent, Device, User
+    from backend.events.sse import pool
+except ModuleNotFoundError:
+    from core.database import SessionLocal
+    from core.models import DetectEvent, Device, User
+    from events.sse import pool
+
 
 
 class DeviceNotFoundError(Exception):
