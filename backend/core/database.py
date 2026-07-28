@@ -5,7 +5,9 @@ from sqlalchemy.orm import sessionmaker
 from backend.core.config import DATABASE_URL, SSL_ROOT_CERT
 
 connect_args = {}
-if "amazonaws.com" in DATABASE_URL:
+if "sqlite" in DATABASE_URL:
+    connect_args = {"check_same_thread": False}
+elif "amazonaws.com" in DATABASE_URL:
     connect_args = {
         "sslmode": "verify-full",
         "sslrootcert": SSL_ROOT_CERT
@@ -15,6 +17,7 @@ engine = create_engine(
     DATABASE_URL,
     connect_args=connect_args
 )
+
 
 # 每次要跟資料庫做事（查詢、新增），就會開一個 session
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

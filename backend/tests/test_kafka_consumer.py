@@ -20,7 +20,8 @@ def test_500回retry():
 import json
 
 from kafka_consumer import handle_raw_message
-from models import DetectEvent
+from backend.core.models import DetectEvent
+
 
 
 class _FakeResp:
@@ -51,16 +52,22 @@ def test_非法json回poison():
 def test_整合_合法訊息落DB(client, db_session):
     raw = json.dumps({
         "device_id": 1,
-        "event_type": "fall",
+        "event_type": "hazard",
         "clip_path": "s3://clips/k.mp4",
         "detected_at": "2026-07-02T14:30:00",
+        "hazard_object": "輪椅",
+        "detected_objects": [{"class_id": 0, "name": "wheelchair", "confidence": 0.92}],
     }).encode()
 
     def post_fn(data):
         return client.post("/events", json=data, headers={"X-API-Key": "test-api-key"})
 
     assert handle_raw_message(raw, post_fn) == "ok"
-    assert db_session.query(DetectEvent).count() == 1
+    event = db_session.query(DetectEvent).first()
+    assert event is not None
+    assert event.hazard_object == "輪椅"
+    assert event.detected_objects == [{"class_id": 0, "name": "wheelchair", "confidence": 0.92}]
+
 
 
 def test_整合_裝置不存在回poison且不落DB(client, db_session):

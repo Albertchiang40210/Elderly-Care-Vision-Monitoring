@@ -37,6 +37,9 @@ class EventCreateRequest(BaseModel):
     snapshot_path: Optional[str] = None
     yolo_score: Optional[float] = None
     vlm_summary: Optional[str] = None
+    hazard_object: Optional[str] = None
+    detected_objects: Optional[dict | list] = None
+
 
 
 # ════════════════════════════════════════════════════════

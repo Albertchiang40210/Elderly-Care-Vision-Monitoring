@@ -486,6 +486,10 @@ if __name__ == "__main__":
         if result.get("should_send_report", True) and result.get("raw_report") is not None:
             iso_detected_at = event_data.get("detected_at", time.strftime("%Y-%m-%dT%H:%M:%S"))
             
+            hazard_obj = result.get('vlm_fall_reason_item')
+            if hazard_obj in (None, "unknown"):
+                hazard_obj = None
+
             final_report = {
                 "device_id": result["clean_device_id"],
                 "event_type": result["alert_type"],
@@ -494,9 +498,12 @@ if __name__ == "__main__":
                 "snapshot_path": result["img_path"],
                 "yolo_score": result["highest_score"],
                 "vlm_summary": result["raw_report"],
+                "hazard_object": hazard_obj,
+                "detected_objects": result.get("detected_objects"),
             }
             
-            item_display = result['vlm_fall_reason_item']
-            if item_display == "unknown":
+            producer.send('processed-reports', value=final_report)
+            item_display = result.get('vlm_fall_reason_item')
+            if item_display == "unknown" or not item_display:
                 item_display = "無危險障礙物 (環境安全)"
             print(f"📢 [Kafka 2] LangGraph Agent 二審報告外發成功！(危險雜物: {item_display})")

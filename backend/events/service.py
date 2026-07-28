@@ -55,7 +55,10 @@ def serialize_event(
         "company_id": event.company_id,
         "yolo_score": event.yolo_score,
         "vlm_summary": event.vlm_summary,
+        "hazard_object": event.hazard_object,
+        "detected_objects": event.detected_objects,
     }
+
 
 
 def operator_names(db: Session, event: DetectEvent) -> tuple[str | None, str | None]:

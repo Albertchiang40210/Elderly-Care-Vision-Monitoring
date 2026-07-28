@@ -9,13 +9,16 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-# 測試用的機器驗證 key，要在 import main 之前設好（event 端點會從環境變數讀）
+# 測試用的機器驗證 key 與資料庫，要在 import main 之前設好
 os.environ["EVENT_API_KEY"] = "test-api-key"
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 from main import app
-from database import Base, get_db
-from models import User, Company, Location, Device, Staff, DetectEvent
-from security import hash_password
+
+from backend.core.database import Base, get_db
+from backend.core.models import User, Company, Location, Device, Staff, DetectEvent
+from backend.core.security import hash_password
+
 
 # 建立一個「只存在記憶體」的測試資料庫，不會動到真正的 fulilian.db
 # StaticPool：讓所有連線共用同一個 connection，這樣 CREATE TABLE 和 INSERT 才看得到彼此
@@ -72,8 +75,9 @@ def setup_database():
                   status="active", company_id=1))
     db.add(Staff(staff_id=1, staff_name="小美", company_id=1))
     db.add(Staff(staff_id=2, staff_name="阿強", company_id=1))
-    db.add(User(name="alice", password=hash_password("secret123"), email="alice@test.com", role="staff"))
-    db.add(User(name="boss", password=hash_password("adminpass"), email="boss@test.com", role="admin"))
+    db.add(User(employee_id="alice", full_name="Alice", password=hash_password("secret123"), email="alice@test.com", role="staff", company_id=1))
+    db.add(User(employee_id="boss", full_name="Boss", password=hash_password("adminpass"), email="boss@test.com", role="admin", company_id=1))
+
     db.commit()
     db.close()
 

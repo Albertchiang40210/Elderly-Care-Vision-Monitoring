@@ -41,8 +41,11 @@ def handle_raw_message(raw, post_fn) -> str:
     #    注意：壞資料是靠「回應碼」判斷（下一步 classify_response），不是靠例外
     try:
         response = post_fn(data)
-    except Exception:
+    except Exception as err:
+        import traceback
+        traceback.print_exc()
         return "retry"
+
     # 3. 依回應碼判定
     return classify_response(response.status_code)
 

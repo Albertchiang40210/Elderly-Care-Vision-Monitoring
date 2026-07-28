@@ -14,8 +14,30 @@ export const EVENT_TYPE_LABEL: Record<EventType, string> = {
 };
 
 // 潛在危險（物件偵測）可辨識的危險物品類型；跌倒事件此欄為 null。
-export type HazardObject = '刀具' | '熱源' | '藥品' | '玻璃碎片' | '積水' | '其他';
-export const HAZARD_OBJECTS: HazardObject[] = ['刀具', '熱源', '藥品', '玻璃碎片', '積水', '其他'];
+export type HazardObject = '輪椅' | '拖鞋' | '電線' | '助行器' | '刀具' | '熱源' | '藥品' | '玻璃碎片' | '積水' | '其他';
+export const HAZARD_OBJECTS: HazardObject[] = [
+  '輪椅',
+  '拖鞋',
+  '電線',
+  '助行器',
+  '刀具',
+  '熱源',
+  '藥品',
+  '玻璃碎片',
+  '積水',
+  '其他',
+];
+
+// DETR 英文 class names (data.yaml: 0:wheelchair, 1:slipper, 2:wire, 3:obstacle, 4:walker) 映射表
+// 依使用者需求：obstacle 拿掉獨立名稱，直接映射至「其他」
+export const DETR_CLASS_MAP: Record<string, HazardObject> = {
+  wheelchair: '輪椅',
+  slipper: '拖鞋',
+  wire: '電線',
+  walker: '助行器',
+  obstacle: '其他',
+};
+
 
 // 通報狀態：獨立於事件生命週期 status（pending/in_progress/resolved）之外的上報流程追蹤。
 // 初報→續報→結報。null＝尚未通報。
@@ -238,6 +260,8 @@ export interface CareEvent {
   id: string;
   event_type: EventType;
   hazard_object: HazardObject | null; // 潛在危險偵測到的物品類型；跌倒事件為 null
+  detected_objects?: any | null;    // DETR 偵測物體 JSON 列表 (如 bbox, label, confidence)
+
   camera: Camera;
   occurred_at: string;       // ISO
   status: EventStatus;

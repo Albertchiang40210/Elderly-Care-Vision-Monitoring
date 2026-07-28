@@ -62,8 +62,20 @@ function buildRawPayload(
     // 潛在危險才帶物品類型（demo 隨機挑一種），跌倒事件為 null。
     hazard_object:
       kind === 'hazard' ? HAZARD_OBJECTS[Math.floor(Math.random() * HAZARD_OBJECTS.length)] : null,
+    detected_objects:
+      kind === 'hazard'
+        ? [
+            {
+              class_id: 0,
+              name: 'wheelchair',
+              confidence: 0.94,
+              box: [100, 150, 200, 300],
+            },
+          ]
+        : null,
   };
 }
+
 
 const devButtonClass =
   'w-fit rounded-lg border border-dashed border-[var(--border)] bg-[var(--bg-surface)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--brand-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]';

@@ -22,11 +22,12 @@ import urllib.parse
 db_pass_raw = os.getenv('DB_PASSWORD', '')
 db_pass_encoded = urllib.parse.quote_plus(db_pass_raw, safe='') if db_pass_raw else ''
 
-DATABASE_URL = (
+DATABASE_URL = os.getenv("DATABASE_URL") or (
     f"postgresql+psycopg2://"
     f"{os.getenv('DB_USER')}:{db_pass_encoded}"
     f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
 )
+
 
 # AWS RDS 的根憑證，用來確認連到的是真的 AWS 而不是假冒的資料庫
 SSL_ROOT_CERT = str(BACKEND_DIR / "global-bundle.pem")
