@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { Camera } from '../types';
 import { CAMERA_LABEL, DETECTING_LABEL, OFFLINE_LABEL } from '../types';
 import { CloseIcon, PencilIcon } from './icons';
+import CameraStream from './CameraStream';
 
 interface CameraDetailModalProps {
   camera: Camera;
@@ -102,8 +103,14 @@ export function CameraDetailModal({ camera, isDetecting, onClose, onNameChange }
           </button>
         </div>
 
-        <div className="flex aspect-video w-full items-center justify-center rounded-xl bg-[var(--bg-surface-2)] text-center text-base text-[var(--text-muted)]">
-          {CAMERA_LABEL.LIVE_PLACEHOLDER}
+        <div className="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-xl bg-black">
+          {offline ? (
+            <div className="text-center text-base text-[var(--text-muted)]">
+              {CAMERA_LABEL.LIVE_PLACEHOLDER}
+            </div>
+          ) : (
+            <CameraStream cameraLabel={camera.name} />
+          )}
         </div>
 
         <div className="flex flex-col">
