@@ -39,12 +39,12 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  # --- 3. Netdata 即時系統效能與資源監控儀表板 ---
+  # --- 3. Netdata 即時系統效能監控儀表板 (不隨 Docker 自動重啟) ---
   netdata:
     image: netdata/netdata:latest
     container_name: nh-netdata
     hostname: aipe03-edge-monitor
-    restart: unless-stopped
+    restart: "no"
     ports:
       - "19999:19999"
     cap_add:

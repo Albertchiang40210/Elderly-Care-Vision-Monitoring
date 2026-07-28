@@ -29,11 +29,14 @@ except ImportError:
 
 @jit(nopython=True, fastmath=True, nogil=True)
 def get_body_angle_jit(shoulder_x, shoulder_y, hip_x, hip_y):
-    """使用 Numba JIT 加速人體角度幾何計算 (支援多執行緒 nogil)"""
+    """計算人體軀幹連線與水平線的絕對夾角 (0~90度)，0度代表完全水平躺平"""
     if shoulder_x == 0.0 or hip_x == 0.0:
         return 90.0
-    angle_rad = np.arctan2(hip_y - shoulder_y, hip_x - shoulder_x)
-    return np.abs(np.degrees(angle_rad))
+    dx = abs(hip_x - shoulder_x)
+    dy = abs(hip_y - shoulder_y)
+    angle_rad = np.arctan2(dy, dx)
+    return np.degrees(angle_rad)
+
 
 # 🚀 Numba JIT 自動預熱 (Warmup) - 避免第一次推論影格卡頓
 try:
@@ -690,7 +693,7 @@ def camera_worker(camera_id, video_source):
                             body_angle = get_body_angle_jit(shoulder_x, shoulder_y, hip_x, hip_y)
                             if not (shoulder_x == 0 or hip_x == 0):
                                 aspect_ratio = w_box / (h_box + 1e-6)
-                                if body_angle < 35.0 and aspect_ratio > 1.0:
+                                if body_angle < 45.0 and aspect_ratio > 0.8:
                                     is_physically_lying = True
                                     person_lying = True
                         except Exception: pass
@@ -864,8 +867,8 @@ def camera_worker(camera_id, video_source):
             vlm_save_dir = os.path.join(PROJECT_ROOT, "active_learning_dataset", "images")
             os.makedirs(vlm_save_dir, exist_ok=True)
 
-            try: numeric_id = int(''.join(filter(str.isdigit, camera_id)))
-            except ValueError: numeric_id = 3
+            numeric_id = 1
+
                 
             event_label = "chair_slip" if is_chair_slipped else "fall"
             final_score = float(act_confidence) if act_confidence > 0 else 0.70
