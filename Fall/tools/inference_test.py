@@ -911,21 +911,23 @@ def camera_worker(camera_id, video_source):
                         out.write(f)
                     out.release()
                     
-                    bucket_name = "aipe03-3"
-                    s3_snapshot_key = f"snapshots/{os.path.basename(snapshot_path)}"
-                    s3_video_key = f"videos/{os.path.basename(video_path)}"
-                    real_s3_snapshot_url = f"s3://{bucket_name}/{s3_snapshot_key}"
-                    real_s3_video_url = f"s3://{bucket_name}/{s3_video_key}"
-                    
-                    print(f"📦 [{cam_id}] 背景將 10 秒影片與快照同步至 AWS S3...")
-                    s3_client = boto3.client('s3')
-                    s3_client.upload_file(snapshot_path, bucket_name, s3_snapshot_key, ExtraArgs={'ContentType': 'image/jpeg'})
-                    s3_client.upload_file(video_path, bucket_name, s3_video_key, ExtraArgs={'ContentType': 'video/mp4'})
-                    
-                    print(f"✅ [{cam_id}] S3 傳輸完成！(快照: {real_s3_snapshot_url})")
-                    
-                    if os.path.exists(snapshot_path): os.remove(snapshot_path)
-                    if os.path.exists(video_path): os.remove(video_path)
+                    try:
+                        bucket_name = os.getenv("AWS_BUCKET_NAME", "aipe03-3")
+                        s3_snapshot_key = f"snapshots/{os.path.basename(snapshot_path)}"
+                        s3_video_key = f"videos/{os.path.basename(video_path)}"
+                        s3_client = boto3.client('s3')
+                        s3_client.upload_file(snapshot_path, bucket_name, s3_snapshot_key, ExtraArgs={'ContentType': 'image/jpeg'})
+                        s3_client.upload_file(video_path, bucket_name, s3_video_key, ExtraArgs={'ContentType': 'video/mp4'})
+                        real_s3_snapshot_url = f"s3://{bucket_name}/{s3_snapshot_key}"
+                        real_s3_video_url = f"s3://{bucket_name}/{s3_video_key}"
+                        print(f"✅ [{cam_id}] S3 傳輸完成！(快照: {real_s3_snapshot_url})")
+                        if os.path.exists(snapshot_path): os.remove(snapshot_path)
+                        if os.path.exists(video_path): os.remove(video_path)
+                    except Exception as s3_err:
+                        print(f"ℹ️ [本機模式] S3 未連線/跳過，將影片與快照保留於本機: {s3_err}")
+                        real_s3_snapshot_url = snapshot_path
+                        real_s3_video_url = video_path
+
                     
                     if prod is not None:
                         # 🌟 業界醫療長照高品質標準（Single-Stage High Integrity Alert）：
