@@ -4,14 +4,16 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.core.config import DATABASE_URL, SSL_ROOT_CERT
 
-# engine 實際負責跟資料庫溝通的引擎
-# psycopg2 是 Python 連 PostgreSQL 的驅動程式（連線字串在 config.py 組好）
+connect_args = {}
+if "amazonaws.com" in DATABASE_URL:
+    connect_args = {
+        "sslmode": "verify-full",
+        "sslrootcert": SSL_ROOT_CERT
+    }
+
 engine = create_engine(
     DATABASE_URL,
-    connect_args={
-        "sslmode": "verify-full",     # 要求驗證伺服器的 SSL 憑證，防止連到假的資料庫
-        "sslrootcert": SSL_ROOT_CERT  # AWS RDS 的根憑證檔案，用來確認對方是真的 AWS
-    }
+    connect_args=connect_args
 )
 
 # 每次要跟資料庫做事（查詢、新增），就會開一個 session
