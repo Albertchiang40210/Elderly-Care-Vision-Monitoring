@@ -674,6 +674,7 @@ def camera_worker(camera_id, video_source):
         is_agitated = False
         is_chair_slipped = False  
         
+        person_lying_flags = []
         if results_pose and len(results_pose[0].keypoints) > 0:
             kpts_obj = results_pose[0].keypoints
             try:
@@ -683,25 +684,17 @@ def camera_worker(camera_id, video_source):
                 boxes_xyxy = results_pose[0].boxes.xyxy.cpu().numpy()
                 
                 if kpts_data.ndim == 3 and kpts_data.shape[0] > 0:
-                    best_idx = -1; max_score = -1.0  
+                    best_idx = -1; max_score = -1.0
                     for idx in range(kpts_data.shape[0]):
-                        if idx < len(conf_data) and conf_data[idx] < 0.45: continue
-                        if idx < len(boxes_data):
-                            _, _, w_box, h_box = boxes_data[idx]
-                            score = conf_data[idx] * (w_box * h_box)
-                            if score > max_score: max_score = score; best_idx = idx
-                    
-                    if best_idx != -1:
-                        kp = kpts_data[best_idx]  
-                        temp_feat = kp[:17, :2].flatten()
-                        if not np.all(temp_feat == 0):
-                            current_pose_feat = temp_feat.copy(); last_pose_feat = current_pose_feat.copy()
-                            has_seen_person = True; is_current_frame_valid = True  
+                        if idx < len(conf_data) and conf_data[idx] < 0.30:
+                            person_lying_flags.append(False)
+                            continue
                         
-                        _, _, w_box, h_box = boxes_data[best_idx]
-                        x1, y1, x2, y2 = boxes_xyxy[best_idx]
-                        if normal_h_reference is None and frame_count > 10 and frame_count < 40: normal_h_reference = h_box
-                            
+                        kp = kpts_data[idx]
+                        _, _, w_box, h_box = boxes_data[idx] if idx < len(boxes_data) else (0, 0, 0, 0)
+                        
+                        # 🚀 [業界標準：多人姿態解算] 獨立對每位檢出目標解算體角與長寬比
+                        person_lying = False
                         try:
                             shoulder_x = (kp[5][0] + kp[6][0]) / 2.0; shoulder_y = (kp[5][1] + kp[6][1]) / 2.0
                             hip_x = (kp[11][0] + kp[12][0]) / 2.0; hip_y = (kp[11][1] + kp[12][1]) / 2.0
