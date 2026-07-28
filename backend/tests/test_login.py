@@ -47,11 +47,13 @@ def test_login_admin_token_contains_admin_role(client):
 
 def test_login_updates_last_login_time(client, db_session):
     # 登入前 alice 沒有登入紀錄；登入成功後 last_login_time 應該被填上
-    before = db_session.query(User).filter(User.name == "alice").first()
+    before = db_session.query(User).filter(User.employee_id == "alice").first()
+
     assert before.last_login_time is None
 
     client.post("/login", data={"username": "alice", "password": "secret123"})
 
     db_session.expire_all()  # 清掉 session 快取，強制重新從 DB 讀最新值
-    after = db_session.query(User).filter(User.name == "alice").first()
+    after = db_session.query(User).filter(User.employee_id == "alice").first()
+
     assert after.last_login_time is not None

@@ -69,12 +69,13 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     # Depends(get_db) → 執行這個函式前，先幫我開一個資料庫連線，用完自動關
 
     # 查資料庫有沒有同名帳號
-    existing = db.query(User).filter(User.name == body.username).first()
+    existing = db.query(User).filter(User.employee_id == body.username).first()
     if existing:
         raise HTTPException(status_code=400, detail="帳號已存在")
 
     new_user = User(
-        name=body.username,
+        employee_id=body.username,
+        full_name=body.username,
         password=hash_password(body.password),  # 密碼雜湊後才存，不存明文
         email=body.email,
         role="staff"
@@ -92,7 +93,8 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     # OAuth2...Form → FastAPI 自動從 form body 抓 username、password
 
     # 到資料庫查有沒有這個帳號
-    user = db.query(User).filter(User.name == form_data.username).first()
+    user = db.query(User).filter(User.employee_id == form_data.username).first()
+
 
     # 帳號不存在，或密碼比對失敗 → 回傳 401
     if not user or not verify_password(form_data.password, user.password):
