@@ -106,7 +106,8 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
     # 驗證通過 → 產生 JWT token，把帳號名稱和角色包進去
     # 之後每次請求帶著這個 token，伺服器就知道你是誰
-    access_token = create_access_token(data={"sub": user.name, "role": user.role})
+    access_token = create_access_token(data={"sub": user.employee_id, "role": user.role})
+
 
     # 回傳 token 給前端，前端要把它存起來，之後每次請求放在 Header 裡
     return {"access_token": access_token, "token_type": "bearer"}
