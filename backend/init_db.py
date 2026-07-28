@@ -29,7 +29,7 @@ def seed_demo_data(db):
     else:
         print("預設公司已存在，略過")
 
-    locations = ["301 號病房", "302 號病房", "303 號病房", "交誼廳 A區", "走廊長廊", "門口區域", "護理站周邊"]
+    locations = ["301 號病房", "302 號病房", "303 號病房", "304 號病房"]
     for loc_name in locations:
         if db.query(Location).filter_by(location_name=loc_name).first() is None:
             db.add(Location(location_name=loc_name, company_id=1))
@@ -40,10 +40,7 @@ def seed_demo_data(db):
         {"device_id": 1, "device_name": "鏡頭 1 (301 號病房)", "location_name": "301 號病房"},
         {"device_id": 2, "device_name": "鏡頭 2 (302 號病房)", "location_name": "302 號病房"},
         {"device_id": 3, "device_name": "鏡頭 3 (303 號病房)", "location_name": "303 號病房"},
-        {"device_id": 4, "device_name": "鏡頭 4 (交誼廳 A區)", "location_name": "交誼廳 A區"},
-        {"device_id": 5, "device_name": "鏡頭 5 (走廊長廊)", "location_name": "走廊長廊"},
-        {"device_id": 6, "device_name": "鏡頭 6 (門口區域)", "location_name": "門口區域"},
-        {"device_id": 7, "device_name": "鏡頭 7 (護理站周邊)", "location_name": "護理站周邊"},
+        {"device_id": 4, "device_name": "鏡頭 4 (304 號病房)", "location_name": "304 號病房"},
     ]
     for dev in target_devices:
         if db.query(Device).filter_by(device_id=dev["device_id"]).first() is None:

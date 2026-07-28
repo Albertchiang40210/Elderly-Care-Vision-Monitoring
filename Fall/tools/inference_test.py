@@ -1020,15 +1020,12 @@ def camera_worker(camera_id, video_source):
 # 🏢 主執行緒專職 GUI 與排列控制
 # =========================================================================
 if __name__ == "__main__":
-    # 🚀 [對齊 7 位組員 / 7 支攝影機] 支援 7 路 RTSP / IP 鏡頭串流
+    # 🚀 [4 頻道攝影機設定：Room_301_Bed ~ Room_304_Bed]
     camera_channels = {
         "Room_301_Bed": os.environ.get("CAM1_URL", "rtsp://localhost:8554/cam_in"),
         "Room_302_Bed": os.environ.get("CAM2_URL", "rtsp://localhost:8554/cam_in"),
         "Room_303_Bed": os.environ.get("CAM3_URL", "rtsp://localhost:8554/cam_in"),
         "Room_304_Bed": os.environ.get("CAM4_URL", "rtsp://localhost:8554/cam_in"),
-        "Room_305_Bed": os.environ.get("CAM5_URL", "rtsp://localhost:8554/cam_in"),
-        "Room_306_Bed": os.environ.get("CAM6_URL", "rtsp://localhost:8554/cam_in"),
-        "Room_307_Bed": os.environ.get("CAM7_URL", "rtsp://localhost:8554/cam_in"),
     }
     print(f"🎬 全連鎖安養中心多鏡頭多模態智能管線全面啟動（10秒前後預錄極速優化完全體）...")
     
