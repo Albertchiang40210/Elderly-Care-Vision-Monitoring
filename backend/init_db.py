@@ -6,15 +6,22 @@
 用法：
     python -m backend.init_db
 """
-from database import SessionLocal, Base, engine
-from models import Company, Location, Device, Staff, User
-from security import hash_password
+from backend.core.database import SessionLocal, Base, engine
+from backend.core.models import Company, Location, Device, Staff, User
+from backend.core.security import hash_password
+
 
 
 def create_tables():
-    """建立 models.py 定義的所有表（已存在的不動）。"""
-    Base.metadata.create_all(bind=engine)
-    print("表建立完成（已存在的不動）")
+    """建立 models.py 定義的所有表。"""
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        print(f"⚠️ 偵測到舊版資料庫 Schema 不合 ({e})，正在為本地資料庫重設與重新建表...")
+        Base.metadata.drop_all(bind=engine)
+        Base.metadata.create_all(bind=engine)
+    print("表建立完成（已自動對齊最新 schema）")
+
 
 
 def seed_demo_data(db):
@@ -66,16 +73,17 @@ def seed_demo_data(db):
 def seed_accounts(db):
     """建立可以登入中控站的初始帳號（A001 管理員 / E001 陳雅文，密碼皆 123456）。"""
     accounts = [
-        {"name": "A001", "email": "a001@fulilian.com", "role": "admin"},
-        {"name": "E001", "email": "e001@fulilian.com", "role": "staff"},
+        {"employee_id": "A001", "full_name": "系統管理員", "email": "a001@fulilian.com", "role": "admin", "must_change_password": False},
+        {"employee_id": "E001", "full_name": "值班照護員", "email": "e001@fulilian.com", "role": "staff", "must_change_password": False},
     ]
     for account in accounts:
-        if db.query(User).filter(User.name == account["name"]).first():
-            print(f"帳號 {account['name']} 已存在，略過建立")
+        if db.query(User).filter(User.employee_id == account["employee_id"]).first():
+            print(f"帳號 {account['employee_id']} 已存在，略過建立")
         else:
             db.add(User(**account, password=hash_password("123456")))
             db.commit()
-            print(f"帳號建立完成：{account['name']} / 123456（role: {account['role']}）")
+            print(f"帳號建立完成：{account['employee_id']} / 123456（role: {account['role']}）")
+
 
 
 if __name__ == "__main__":
