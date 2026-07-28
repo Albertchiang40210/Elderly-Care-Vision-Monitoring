@@ -40,16 +40,19 @@ def parse_s3_uri(uri):
 
 # 發一張限時鑰匙網址
 def generate_presigned_url(s3_uri, expires=S3_URL_TTL):
-    """把 s3:// 換成限時網址；非 s3://（如舊本機路徑）或空值回 None。"""
+    """把 s3:// 換成限時網址；非 s3://（如本機路徑）或 S3 離線時回傳原 s3_uri。"""
+    if not isinstance(s3_uri, str) or not s3_uri:
+        return None
     parsed = parse_s3_uri(s3_uri)
     if parsed is None:
-        return None
+        return s3_uri
     bucket, key = parsed
     try:
         return get_s3_client().generate_presigned_url(
             "get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=expires,
         )
     except Exception:
-        return None
+        return s3_uri
+
 
 

@@ -73,7 +73,8 @@ def test_media_clip_null_when_local_path(client, auth_headers, make_event):
     event = make_event(clip_path="C:/albert/clips/old.mp4", snapshot_path=None)
     res = client.get(f"/events/{event.event_id}/media", headers=auth_headers)
     assert res.status_code == 200
-    assert res.json()["clip_url"] is None
+    assert res.json()["clip_url"] == "C:/albert/clips/old.mp4"
+
 
 
 def test_media_event_not_found(client, auth_headers):
