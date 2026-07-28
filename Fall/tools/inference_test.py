@@ -12,7 +12,7 @@ from datetime import datetime
 import base64
 import subprocess
 import requests as _requests
-import boto3  # 👈 🚀 [完全體新增] 引入 AWS 官方 S3 SDK 套件
+
 try:
     import tritonclient.grpc as grpcclient  # 👈 🚀 [Triton 整合] 引入 Triton gRPC 套件
 except ImportError:

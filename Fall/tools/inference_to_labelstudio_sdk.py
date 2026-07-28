@@ -4,14 +4,15 @@ from pathlib import Path
 import cv2
 import requests
 import json
-import boto3
 import numpy as np
 import shutil
 import time  
+
 import base64  # 🎯 Base64 解碼模組
 from clearml import Model  
 
 # 🚨 核心大一統：全面換裝為與前線和 ClearML 後台重訓同構的 DEIM-DETR (RT-DETR)
+# pyrefly: ignore [missing-import]
 from ultralytics import RTDETR
 
 # =========================================================================
