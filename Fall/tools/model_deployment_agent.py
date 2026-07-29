@@ -27,96 +27,58 @@ MODEL_NAME = "rt_detr"                     # Triton 中的模型名稱
 
 # 💡 動態路徑，自動對齊專案內 model_repository 目錄
 MODEL_REPOSITORY_PATH = str(current_dir.parent / "model_repository")
+LOCAL_MODELS_BASE = current_dir.parent / "active_learning_dataset" / "models"
 
-# ☁️ AWS S3 實體配置（改為優先從環境變數讀取，若無則套用預設值）
-AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME", "aipe03-3")  # 你的 S3 儲存桶名稱
-
-# 🛠️ 修正後的路徑前綴：精準對齊 ClearML 自動生成的 S3 深層結構
-S3_PREFIX = "clearml-artifacts/models/fall_detection/Fall_Detection/"  
-# =================================================
-
-def get_latest_model_key_from_s3(bucket_name: str, prefix: str) -> str:
+def get_latest_model_key_from_local(model_type: str = "yolo_pose") -> str:
     """
-    自動掃描 S3，找出 Fall_Detection/ 底下最新修改的資料夾中的 model.onnx (或權重檔)
+    從地端 Fall/active_learning_dataset/models/<model_type>/ 搜尋最新重訓的最佳模型
     """
-    print("🔍 正在從 AWS S3 搜尋最新的重訓模型資料夾...")
+    target_dir = LOCAL_MODELS_BASE / model_type
+    print(f"🔍 正在從地端 {target_dir} 搜尋最新重訓模型的權重...")
+    if not target_dir.exists():
+        target_dir = LOCAL_MODELS_BASE  # 相容預設路徑
+        if not target_dir.exists(): return ""
     
-    # 這裡 boto3 會自動去吃剛才 load_dotenv 載入的 AWS_ACCESS_KEY_ID 等環境變數
-    s3 = boto3.client('s3')
+    files = []
+    for root, _, filenames in os.walk(str(target_dir)):
+        for f in filenames:
+            if f.endswith(".pt") or f.endswith(".onnx"):
+                full_path = os.path.join(root, f)
+                files.append((os.path.getmtime(full_path), full_path))
     
-    # 列出該前綴下的所有物件
-    paginator = s3.get_paginator('list_objects_v2')
-    pages = paginator.paginate(Bucket=bucket_name, Prefix=prefix)
-    
-    onnx_files = []
-    
-    for page in pages:
-        if 'Contents' in page:
-            for obj in page['Contents']:
-                key = obj['Key']
-                # 尋找 ONNX 模型檔
-                if key.endswith('.onnx'):
-                    onnx_files.append({
-                        'Key': key,
-                        'LastModified': obj['LastModified']
-                    })
-    
-    if not onnx_files:
-        # 如果沒找到 .onnx，退而求其次找 .pt 檔
-        print("⚠️ 沒找到 .onnx 檔，嘗試搜尋 .pt 檔...")
-        pages = paginator.paginate(Bucket=bucket_name, Prefix=prefix)
-        for page in pages:
-            if 'Contents' in page:
-                for obj in page['Contents']:
-                    key = obj['Key']
-                    if key.endswith('.pt'):
-                        onnx_files.append({
-                            'Key': key,
-                            'LastModified': obj['LastModified']
-                        })
-
-    if not onnx_files:
-        print("❌ 在 S3 指定目錄下找不到任何模型檔案 (.onnx 或 .pt)！")
-        return None
-    
-    # 依最後修改時間排序，拿出最新上傳的模型
-    onnx_files.sort(key=lambda x: x['LastModified'], reverse=True)
-    latest_model = onnx_files[0]
-    
-    print("🎯 偵測到最新模型！")
-    print(f"   📂 S3 路徑: s3://{bucket_name}/{latest_model['Key']}")
-    print(f"   🕒 修改時間: {latest_model['LastModified']}")
-    
-    return latest_model['Key']
-
-
-def download_model_from_s3(bucket_name: str, s3_key: str, local_path: str) -> bool:
+    if not files: return ""
+def get_latest_model_key_from_local(model_type: str = "rt_detr") -> str:
     """
-    從 AWS S3 下載指定模型檔案到本地
+    從地端 Fall/active_learning_dataset/models/<model_type>/ 搜尋最新重訓的最佳模型
     """
-    try:
-        s3 = boto3.client('s3')
-        print(f"📥 開始下載最新模型至本地暫存: {local_path}...")
-        
-        # 確保本地暫存目錄存在
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        
-        s3.download_file(bucket_name, s3_key, local_path)
-        print("✅ 模型下載完成！")
-        return True
-    except NoCredentialsError:
-        print("❌ 錯誤：找不到 AWS 憑證，請確認專案根目錄中的 .env 是否正確配置。")
-        return False
-    except Exception as e:
-        print(f"❌ 從 S3 下載模型時發生錯誤: {e}")
-        return False
+    target_dir = LOCAL_MODELS_BASE / model_type
+    print(f"🔍 正在從地端目錄 {target_dir} 搜尋最新重訓模型...")
+    if not target_dir.exists():
+        target_dir = LOCAL_MODELS_BASE
+        if not target_dir.exists(): return ""
+    
+    files = []
+    for root, _, filenames in os.walk(str(target_dir)):
+        for f in filenames:
+            if f.endswith(".pt") or f.endswith(".onnx"):
+                full_path = os.path.join(root, f)
+                files.append((os.path.getmtime(full_path), full_path))
+    
+    if not files:
+        print("❌ 在地端指定目錄下找不到任何模型檔案 (.onnx 或 .pt)！")
+        return ""
+    
+    files.sort(key=lambda x: x[0], reverse=True)
+    latest_path = files[0][1]
+    print(f"🎯 偵測到地端最新模型！\n   📂 本地路徑: {latest_path}")
+    return latest_path
 
 
 def deploy_new_model(new_model_path: str, version: int = 2):
     """
-    將新訓練好的模型部署至 Triton，並觸發熱部署 (Warm Start)
+    將地端新訓練好的模型部署至 Triton，並觸發熱部署 (Warm Start)
     """
-    print("🚀 [MLOps 部署代理人] 開始啟動熱部署流程...")
+    print("🚀 [MLOps 部署代理人] 開始啟動地端熱部署流程...")
 
     # 1. 確保 Triton 的目標版本資料夾存在
     target_version_dir = os.path.join(MODEL_REPOSITORY_PATH, MODEL_NAME, str(version))
@@ -127,6 +89,7 @@ def deploy_new_model(new_model_path: str, version: int = 2):
     # 2. 複製新模型至 Triton 目錄
     try:
         print(f"📦 正在將新模型從 {new_model_path} 複製到 {target_model_path}...")
+
         shutil.copy(new_model_path, target_model_path)
         print("✅ 模型檔案複製成功！")
     except Exception as e:
@@ -174,72 +137,47 @@ def deploy_new_model(new_model_path: str, version: int = 2):
     return False
 
 
-if __name__ == "__main__":
-    # 暫存下載模型的基礎路徑
-    local_temp_base = "./temp_downloaded_model"
+def main():
+    print("=======================================================")
+    print("🤖 [MLOps 部署代理人] 啟動自動化地端熱部署流程")
+    print("=======================================================")
+
+    m_type = sys.argv[1] if len(sys.argv) > 1 else "rt_detr"
+    latest_local_path = get_latest_model_key_from_local(model_type=m_type)
     
-    # 🚀 第一步：動態尋找 S3 上最新產生的模型路徑
-    latest_s3_key = get_latest_model_key_from_s3(
-        bucket_name=AWS_BUCKET_NAME,
-        prefix=S3_PREFIX
-    )
-    
-    # 🚀 第二步：下載最新模型並判斷是否需要轉檔
-    if latest_s3_key:
-        ext = os.path.splitext(latest_s3_key)[1]
-        download_path = f"{local_temp_base}{ext}"
+    if latest_local_path and os.path.exists(latest_local_path):
+        ext = os.path.splitext(latest_local_path)[1]
+        local_temp_base = os.path.join(current_dir, "temp_downloaded_model")
+        final_onnx_path = None
         
-        success = download_model_from_s3(
-            bucket_name=AWS_BUCKET_NAME,
-            s3_key=latest_s3_key,
-            local_path=download_path
-        )
+        if ext == ".pt":
+            print("🔄 偵測到地端模型為 PyTorch (.pt) 格式，正在發動 ONNX 自動導出流程...")
+            expected_onnx = f"{local_temp_base}.onnx"
+            try:
+                result = subprocess.run(
+                    ["yolo", "export", f"model={latest_local_path}", "format=onnx", "imgsz=640", "opset=16"],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                )
+                generated_onnx = latest_local_path.replace(".pt", ".onnx")
+                if os.path.exists(generated_onnx):
+                    shutil.move(generated_onnx, expected_onnx)
+                    print("✅ ONNX 模型已在地端轉換完成（Opset=16 相容模式）！")
+                    final_onnx_path = expected_onnx
+                elif os.path.exists(expected_onnx):
+                    final_onnx_path = expected_onnx
+                else:
+                    print(f"❌ 轉檔失敗。日誌: {result.stderr}")
+            except Exception as e:
+                print(f"❌ 呼叫 yolo export 時發生異常: {e}")
+        else:
+            final_onnx_path = latest_local_path
         
-        if success and os.path.exists(download_path):
-            final_onnx_path = None
-            
-            # 💡 核心轉換邏輯：如果是 .pt 檔，自動呼叫 YOLO CLI 轉成 .onnx
-            if ext == ".pt":
-                print("🔄 偵測到下載的模型為 PyTorch (.pt) 格式，正在呼叫轉檔指令...")
-                expected_onnx = f"{local_temp_base}.onnx"
-                
-                try:
-                    # 💡 關鍵修改：在轉檔指令最後加上 "opset=16"，強制導出相容於當前 Triton (ONNX Runtime) 的格式
-                    result = subprocess.run(
-                        ["yolo", "export", f"model={download_path}", "format=onnx", "imgsz=640", "opset=16"],
-                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-                    )
-                    
-                    # 檢查原位置導出成功後的檔案路徑
-                    generated_onnx = download_path.replace(".pt", ".onnx")
-                    
-                    if os.path.exists(generated_onnx):
-                        # 將轉好的模型重新命名到我們的 ONNX 暫存檔
-                        shutil.move(generated_onnx, expected_onnx)
-                        print("✅ ONNX 模型已成功在本地轉換完成（Opset=16 相容模式）！")
-                        final_onnx_path = expected_onnx
-                    else:
-                        print(f"❌ 轉檔失敗，未在預期位置找到 ONNX 檔。日誌: {result.stderr}")
-                except Exception as e:
-                    print(f"❌ 呼叫 yolo export 時發生異常: {e}")
-            else:
-                # 如果從 S3 下載下來原本就是 .onnx，直接使用
-                final_onnx_path = download_path
-            
-            # 🚀 第三步：執行熱部署
-            if final_onnx_path and os.path.exists(final_onnx_path):
-                deploy_new_model(new_model_path=final_onnx_path, version=2)
-            else:
-                print("❌ 部署中斷，找不到可用的 ONNX 模型檔。")
-            
-            # 🧹 清理所有包含 temp_downloaded_model 的暫存檔
-            import glob
-            for temp_file in glob.glob(f"{local_temp_base}*"):
-                try:
-                    if os.path.isfile(temp_file):
-                        os.remove(temp_file)
-                except Exception:
-                    pass
-            print("🧹 已清除本地所有暫存模型檔案。")
+        if final_onnx_path and os.path.exists(final_onnx_path):
+            deploy_new_model(new_model_path=final_onnx_path, version=2)
+        else:
+            print("❌ 部署中斷，找不到可用的 ONNX 模型檔。")
     else:
-        print("❌ 無法取得最新模型路徑，部署中斷。")
+        print("ℹ️ 地端 active_learning_dataset/models/ 中尚未發現重訓產出的新模型。")
+
+if __name__ == "__main__":
+    main()

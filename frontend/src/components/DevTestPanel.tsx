@@ -45,15 +45,15 @@ function buildRawPayload(
     event_type: preset.event_type,
     status: 'pending',
     verdict: null,
-    clip_path: null,
-    snapshot_path: null,
+    clip_path: 'http://localhost:8000/images/test.mp4',
+    snapshot_path: 'http://localhost:8000/images/test.jpg',
     detected_at: new Date().toISOString(),
     notified_at: null,
     verdict_by: null,
     verdict_by_name: null,
     resolved_by: null,
     resolved_by_name: null,
-    company_id: 0,
+    company_id: 1,
     yolo_score: 0.94,
     vlm_summary: preset.description,
     // 測試事件是全新事件，尚無通報單
@@ -65,17 +65,16 @@ function buildRawPayload(
     detected_objects:
       kind === 'hazard'
         ? [
-            {
-              class_id: 0,
-              name: 'wheelchair',
-              confidence: 0.94,
-              box: [100, 150, 200, 300],
-            },
-          ]
+          {
+            class_id: 0,
+            name: 'wheelchair',
+            confidence: 0.94,
+            box: [100, 150, 200, 300],
+          },
+        ]
         : null,
   };
 }
-
 
 const devButtonClass =
   'w-fit rounded-lg border border-dashed border-[var(--border)] bg-[var(--bg-surface)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--brand-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]';
@@ -85,13 +84,39 @@ export function DevTestPanel() {
 
   async function handleInject(kind: TestEventKind) {
     const cameras = await getCameras();
-    // 從即時監控名單取一台鏡頭：優先線上，否則退回第一台。
     const camera = cameras.find((c) => c.status === 'online') ?? cameras[0];
-    if (!camera) {
-      console.warn('[DevTestPanel] 監控名單無鏡頭可用，無法產生測試事件');
-      return;
+    if (!camera) return;
+
+    const preset = TEST_EVENT_PRESETS[kind];
+    const backendApiUrl = 'http://localhost:8000/events';
+    const validApiKey = 'nAK4h8ARAJMjCSoWJ-uErx2KyZKGDF-jcXqmMUpkM_o';
+
+    try {
+      const response = await fetch(backendApiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': validApiKey,
+        },
+        body: JSON.stringify({
+          device_id: camera.id,
+          event_type: preset.event_type,
+          clip_path: 'http://localhost:8000/images/test.mp4',
+          detected_at: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 19),
+          snapshot_path: 'http://localhost:8000/images/test.jpg',
+          yolo_score: 0.94,
+          vlm_summary: preset.description,
+          hazard_object: kind === 'hazard' ? 'knife' : null,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`後端回應錯誤狀態: ${response.status}`);
+      }
+    } catch (err) {
+      console.warn('[DevTestPanel] 發送測試事件至後端失敗，改為本地端前端注入:', err);
+      injectTestEvent(parseRawEvent(buildRawPayload(camera, kind)));
     }
-    injectTestEvent(parseRawEvent(buildRawPayload(camera, kind)));
   }
 
   return (

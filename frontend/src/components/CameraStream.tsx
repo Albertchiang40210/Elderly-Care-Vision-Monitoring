@@ -11,7 +11,11 @@ const WHEP_URL = 'http://localhost:8889/cam_in/whep';
 
 
 
-const DETECT_SSE = '/api/events/live-detection/stream';
+// 直接連線至後端 Port 8000 的即時骨架 SSE 推播通道
+const DETECT_SSE = 'http://localhost:8000/events/live-detection/stream';
+
+// COCO 17 關鍵點骨骼連線定義
+
 
 // COCO 17 關鍵點骨骼連線定義
 const SKELETON: [number, number][] = [
@@ -25,7 +29,8 @@ const SKELETON: [number, number][] = [
 interface Person {
   bbox: [number, number, number, number]; // 像素座標 x1 y1 x2 y2
   conf: number;
-  kps: [number, number][];               // 正規化 0-1
+  kps?: [number, number][];              // 正規化 0-1
+  keypoints?: [number, number][];        // 雙重別名支援
   is_fall?: boolean;
 }
 
@@ -57,9 +62,12 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props)
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
-        personsRef.current = data.persons ?? [];
+        const parsedPersons = data['1'] || data['Room_301_Bed'] || data.persons || (Object.values(data)[0] as Person[]) || [];
+        personsRef.current = Array.isArray(parsedPersons) ? parsedPersons : [];
         lastUpdateRef.current = Date.now();
-      } catch {}
+      } catch (err) {
+        console.error("[CameraStream SSE Parse Error]", err);
+      }
     };
     es.onerror = () => {};   // 安靜重連，不影響 UI
     return () => es.close();
@@ -76,22 +84,31 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props)
     let lastFpsTime = performance.now();
 
     function draw() {
-      if (!video || video.paused || video.ended) { rafRef.current = requestAnimationFrame(draw); return; }
+      // Refs 會在元件卸載時清空；使用這兩個已確認非 null 的區域變數，
+      // 也避免 TypeScript 在 animation callback 中失去型別收窄。
+      const videoElement = video!;
+      const canvasElement = canvas!;
 
       // 同步 canvas 尺寸與顯示尺寸
-      if (canvas!.width !== video.clientWidth || canvas!.height !== video.clientHeight) {
-        canvas!.width = video.clientWidth;
-        canvas!.height = video.clientHeight;
+      if (canvasElement.width !== videoElement.clientWidth || canvasElement.height !== videoElement.clientHeight) {
+        canvasElement.width = videoElement.clientWidth;
+        canvasElement.height = videoElement.clientHeight;
       }
-      ctx.clearRect(0, 0, canvas!.width, canvas!.height);
+      ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+      // 移除 video.paused / clientWidth 檢查，確保只要有 SSE 姿態資料傳入，Canvas 永遠繪製
+      if (!canvasElement.clientWidth || !canvasElement.clientHeight) {
+        rafRef.current = requestAnimationFrame(draw);
+        return;
+      }
 
       // 若超過 1200ms 沒收到新影格座標（人物離開畫面），自動清空殘留畫框與骨架
       if (Date.now() - lastUpdateRef.current > 1200) {
         personsRef.current = [];
       }
 
-      const W = canvas!.width;
-      const H = canvas!.height;
+      const W = canvasElement.width;
+      const H = canvasElement.height;
       const persons = personsRef.current;
 
       persons.forEach((p) => {
@@ -129,20 +146,30 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props)
         ctx.lineWidth = 2;
         ctx.strokeRect(rx1, ry1, bw, bh);
 
-        // 4. 骨架關鍵點 & 連線 (預留可切換)
-        if (showSkeleton && p.kps && p.kps.length >= 17) {
-          ctx.strokeStyle = 'rgba(0, 229, 255, 0.85)';
+        // 4. 骨架關鍵點 & 連線 (100% 強效渲染)
+        const kpts = p.kps || p.keypoints;
+        if (showSkeleton && kpts && kpts.length >= 17) {
+          const getPos = (pt: any): [number, number] => {
+            if (!pt) return [0, 0];
+            if (Array.isArray(pt)) return [pt[0], pt[1]];
+            if (typeof pt === 'object') return [pt.x ?? 0, pt.y ?? 0];
+            return [0, 0];
+          };
+
+          ctx.strokeStyle = '#00e5ff';
           ctx.lineWidth = 3;
           SKELETON.forEach(([a, b]) => {
-            const ka = p.kps[a], kb = p.kps[b];
-            if (!ka || !kb || (ka[0] === 0 && ka[1] === 0) || (kb[0] === 0 && kb[1] === 0)) return;
+            const [ax, ay] = getPos(kpts[a]);
+            const [bx, by] = getPos(kpts[b]);
+            if ((ax === 0 && ay === 0) || (bx === 0 && by === 0)) return;
             ctx.beginPath();
-            ctx.moveTo(ka[0] * W, ka[1] * H);
-            ctx.lineTo(kb[0] * W, kb[1] * H);
+            ctx.moveTo(ax * W, ay * H);
+            ctx.lineTo(bx * W, by * H);
             ctx.stroke();
           });
 
-          p.kps.forEach(([kx, ky]) => {
+          kpts.forEach((pt) => {
+            const [kx, ky] = getPos(pt);
             if (kx === 0 && ky === 0) return;
             ctx.beginPath();
             ctx.arc(kx * W, ky * H, 4, 0, Math.PI * 2);
@@ -167,12 +194,10 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props)
       rafRef.current = requestAnimationFrame(draw);
     }
 
-    video.addEventListener('playing', () => {
-      frameCount = 0; lastFpsTime = performance.now();
-      draw();
-    });
+    // 立即啟動，讓延遲建立的 WebRTC 串流也能被繪製。
+    draw();
     return () => cancelAnimationFrame(rafRef.current);
-  }, []);
+  }, [showSkeleton]);
 
   // ── WebRTC WHEP 連線 ───────────────────────────────────
   async function connect() {
@@ -307,7 +332,7 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props)
       <video ref={videoRef} autoPlay muted playsInline className="absolute inset-0 h-full w-full object-cover" />
 
       {/* canvas 疊加層：骨架 + 偵測框 */}
-      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full pointer-events-none" />
+      <canvas ref={canvasRef} className="absolute inset-0 z-10 h-full w-full pointer-events-none" />
     </div>
   );
 }

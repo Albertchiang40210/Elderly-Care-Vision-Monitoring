@@ -34,7 +34,7 @@ signal.signal(signal.SIGTERM, graceful_exit)
 
 def run_sync():
     """執行同步標註腳本並處理異常"""
-    logger.info(">>> 開始執行 S3 影像同步與自動標註流程...")
+    logger.info(">>> 開始執行影像同步與自動標註流程...")
     try:
         # 使用 check=True 來確保失敗時能拋出錯誤
         result = subprocess.run(

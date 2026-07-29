@@ -39,6 +39,7 @@ from models import Company, Location, Device, Staff  # noqa: E402
 # 建立一個「資料庫工作階段（Session）」，之後就可以透過 db 操作資料庫。
 db = SessionLocal()
 
+# 1. 建立預設公司
 if db.query(Company).filter_by(company_id=1).first() is None:
     db.add(Company(company_id=1, company_name="扶力憐示範安養院"))
     db.commit()
@@ -46,24 +47,35 @@ if db.query(Company).filter_by(company_id=1).first() is None:
 else:
     print("預設公司已存在，略過")
 
-if db.query(Location).first() is None:
-    db.add(Location(location_name="交誼廳", company_id=1))
-    db.add(Location(location_name="走廊", company_id=1))
-    db.commit()
-    print("已建立區域 2 筆")
-else:
-    print("區域已存在，略過")
+# 2. 建立區域 (Location) - 🎯 補上 301號病房
+locations_to_add = ["交誼廳", "走廊", "301號病房"]
+for loc_name in locations_to_add:
+    if db.query(Location).filter_by(location_name=loc_name).first() is None:
+        db.add(Location(location_name=loc_name, company_id=1))
+        db.commit()
+        print(f"已建立區域：{loc_name}")
 
-if db.query(Device).first() is None:
-    # 查出剛種的區域編號，裝置掛上對應的 location_id
-    loc_ids = {l.location_name: l.location_id for l in db.query(Location).all()}
-    db.add(Device(device_name="交誼廳-01", location_id=loc_ids.get("交誼廳"), status="active", company_id=1))
-    db.add(Device(device_name="走廊-01", location_id=loc_ids.get("走廊"), status="active", company_id=1))
-    db.commit()
-    print("已建立示範裝置 2 台")
-else:
-    print("裝置已存在，略過")
+# 3. 建立裝置 (Device) - 🎯 補上 Room_301_Bed 邊緣鏡頭裝置
+loc_ids = {l.location_name: l.location_id for l in db.query(Location).all()}
 
+devices_to_add = [
+    {"device_name": "交誼廳-01", "location_name": "交誼廳"},
+    {"device_name": "走廊-01", "location_name": "走廊"},
+    {"device_name": "Room_301_Bed", "location_name": "301號病房"} # 👈 解決 401 的關鍵權限紀錄
+]
+
+for dev in devices_to_add:
+    if db.query(Device).filter_by(device_name=dev["device_name"]).first() is None:
+        db.add(Device(
+            device_name=dev["device_name"], 
+            location_id=loc_ids.get(dev["location_name"]), 
+            status="active", 
+            company_id=1
+        ))
+        db.commit()
+        print(f"已建立示範裝置：{dev['device_name']}")
+
+# 4. 建立照護員 (Staff)
 if db.query(Staff).first() is None:
     db.add(Staff(staff_name="照護員A", company_id=1))
     db.add(Staff(staff_name="照護員B", company_id=1))
@@ -73,4 +85,4 @@ else:
     print("照護員已存在，略過")
 
 db.close()
-print("種子資料完成")
+print("🎉 所有種子資料與邊緣鏡頭綁定完成！")

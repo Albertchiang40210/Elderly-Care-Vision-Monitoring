@@ -76,8 +76,9 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // 真後端事件推播（SSE）。閒置不推，有事件才觸發 handleIncomingEvent。
-  useEventSocket(session?.token ?? null, handleIncomingEvent);
+  // 真後端事件推播（SSE）。地端展示模式下若無 token 則帶入地端預設 dev-token，確保永遠接收全螢幕告警彈窗！
+  useEventSocket(session?.token || 'dev-token', handleIncomingEvent);
+
 
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), TICK_INTERVAL_MS);

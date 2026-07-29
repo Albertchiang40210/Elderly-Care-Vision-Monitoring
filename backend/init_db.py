@@ -11,7 +11,6 @@ from backend.core.models import Company, Location, Device, Staff, User
 from backend.core.security import hash_password
 
 
-
 def create_tables():
     """建立 models.py 定義的所有表。"""
     try:
@@ -21,7 +20,6 @@ def create_tables():
         Base.metadata.drop_all(bind=engine)
         Base.metadata.create_all(bind=engine)
     print("表建立完成（已自動對齊最新 schema）")
-
 
 
 def seed_demo_data(db):
@@ -43,6 +41,8 @@ def seed_demo_data(db):
     db.commit()
 
     loc_ids = {l.location_name: l.location_id for l in db.query(Location).all()}
+    
+    # 🎯 補齊 Device mapping，確保對齊邊緣端推播的 Room_301_Bed 與鏡頭 1
     target_devices = [
         {"device_id": 1, "device_name": "鏡頭 1 (301 號病房)", "location_name": "301 號病房"},
         {"device_id": 2, "device_name": "鏡頭 2 (302 號病房)", "location_name": "302 號病房"},
@@ -83,7 +83,6 @@ def seed_accounts(db):
             db.add(User(**account, password=hash_password("123456")))
             db.commit()
             print(f"帳號建立完成：{account['employee_id']} / 123456（role: {account['role']}）")
-
 
 
 if __name__ == "__main__":

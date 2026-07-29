@@ -17,6 +17,10 @@ export default defineConfig({
         ws: true,
         rewrite: (path) => path.replace(/^\/ws/, '/ws'),
       },
+      '/images': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
     },
   },
 })

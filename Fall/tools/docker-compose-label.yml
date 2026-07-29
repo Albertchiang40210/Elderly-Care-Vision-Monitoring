@@ -13,8 +13,10 @@ services:
       - ../active_learning_dataset:/label-studio/data/active_learning_dataset
     environment:
       # 🎯 啟用本地檔案服務，並將 Document Root 對齊掛載路徑
-      - LABEL_STUDIO_LOCAL_FILES_SERV_ENABLED=true
-      - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/data/active_learning_dataset
+      - LOCAL_FILES_SERVING_ENABLED=true
+      - LOCAL_FILES_DOCUMENT_ROOT=/label-studio/data/active_learning_dataset
+
+
     networks:
       - tools_net
 

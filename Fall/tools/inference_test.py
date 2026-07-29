@@ -14,14 +14,13 @@ import subprocess
 import requests as _requests
 
 try:
-    import tritonclient.grpc as grpcclient  # 👈 🚀 [Triton 整合] 引入 Triton gRPC 套件
+    import tritonclient.grpc as grpcclient  # 🚀 [Triton 整合] 引入 Triton gRPC 套件
 except ImportError:
     grpcclient = None
 
 try:
     from numba import jit
 except ImportError:
-    # 建立一個假的 jit 裝飾器做為備份，防止環境沒有 numba 時崩潰
     def jit(*args, **kwargs):
         def decorator(func):
             return func
@@ -37,20 +36,27 @@ def get_body_angle_jit(shoulder_x, shoulder_y, hip_x, hip_y):
     angle_rad = np.arctan2(dy, dx)
     return np.degrees(angle_rad)
 
-
-# 🚀 Numba JIT 自動預熱 (Warmup) - 避免第一次推論影格卡頓
+# 🚀 Numba JIT 自動預熱 (Warmup)
 try:
     _ = get_body_angle_jit(100.0, 100.0, 100.0, 200.0)
 except Exception:
     pass
 
 # =========================================================================
-# 🧭 自動修正 Python 模組搜尋路徑 (解決 No module named 'modules')
+# 🧭 自動修正 Python 模組搜尋路徑
 # =========================================================================
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)  # 從 tools/ 往上推一層到 Fall/
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
+
+# =========================================================================
+# 🔑 全域指定唯一合法 API KEY (物理強注，徹底解決 HTTP 401 拒絕問題)
+# =========================================================================
+VALID_API_KEY = "nAK4h8ARAJMjCSoWJ-uErx2KyZKGDF-jcXqmMUpkM_o"
+
+def _get_valid_api_key():
+    return VALID_API_KEY
 
 # =========================================================================
 # 🌟 專屬長照智慧模組（僅保留模組 G：環境安全巡檢）
@@ -61,7 +67,6 @@ try:
 except Exception as e:
     print(f"❌ [模組 G] 巡檢匯入失敗: {e}")
     RoutineSanityChecker = None
-
 
 # =========================================================================
 # 🛠️ MLOps 基礎建設：Kafka 初始化
@@ -76,10 +81,10 @@ try:
     )
     print("✅ [Kafka] 訊息中心連線成功！雙向數據管線已就緒。")
 except Exception as e:
-    print(f"⚠️ [Kafka] 連線失敗（警報將無法外發）: {e}")
+    print(f"⚠️ [Kafka] 連線失敗: {e}")
     producer = None
 
-# 🚀 開啟 GPU 硬體加速（自動相容 Mac Metal GPU / N卡 CUDA / CPU）
+# 🚀 開啟 GPU 硬體加速
 if torch.cuda.is_available():
     device = torch.device("cuda")
 elif torch.backends.mps.is_available():
@@ -90,7 +95,44 @@ else:
 print(f"🚀 推理引擎啟動，成功掛載 GPU 硬體加速裝置：{device}")
 
 # =========================================================================
-# ⚡ [Triton 整合] 建立與對齊相容的 Mock 數據結構（避免破壞下游模組邏輯）
+# 🛡️ 業界安防平滑追蹤器 (Box & Pose Smoothing Tracker)
+# =========================================================================
+class PersonTrackerEMA:
+    """利用指數平滑 (EMA) 與慣性補幀，確保畫面的框與骨架 100% 穩定緊跟，絕不閃爍掉幀"""
+    def __init__(self, alpha=0.35, max_missing_frames=12):
+        self.alpha = alpha
+        self.max_missing = max_missing_frames
+        self.missing_count = 0
+        self.last_box = None      # [x1, y1, x2, y2]
+        self.last_kpts = None     # [17, 2] 或 [17, 3]
+        self.last_conf = 0.0
+
+    def update(self, new_box, new_kpts, conf):
+        if new_box is not None:
+            self.missing_count = 0
+            self.last_conf = conf
+            if self.last_box is None:
+                self.last_box = np.array(new_box, dtype=np.float32)
+            else:
+                self.last_box = self.alpha * np.array(new_box, dtype=np.float32) + (1 - self.alpha) * self.last_box
+            
+            if new_kpts is not None:
+                if self.last_kpts is None:
+                    self.last_kpts = np.array(new_kpts, dtype=np.float32)
+                else:
+                    self.last_kpts = self.alpha * np.array(new_kpts, dtype=np.float32) + (1 - self.alpha) * self.last_kpts
+            return self.last_box.astype(int), self.last_kpts, self.last_conf
+        else:
+            self.missing_count += 1
+            if self.missing_count <= self.max_missing and self.last_box is not None:
+                return self.last_box.astype(int), self.last_kpts, self.last_conf * 0.9
+            else:
+                self.last_box = None
+                self.last_kpts = None
+                return None, None, 0.0
+
+# =========================================================================
+# ⚡ [Triton 整合] 建立與對齊相容的 Mock 數據結構
 # =========================================================================
 class MockBox:
     def __init__(self, xyxy, conf, cls):
@@ -121,65 +163,13 @@ class MockPoseResults:
         self.keypoints = keypoints
         self.boxes = boxes
         self.original_frame = original_frame
-        
-    def plot(self, boxes=True, labels=True, conf=0.45):
-        frame_copy = self.original_frame.copy()
-        h, w, _ = frame_copy.shape
-        conf_data = self.boxes.conf.cpu().numpy()
-        xyxy_data = self.boxes.xyxy.cpu().numpy()
-        kpts_data = self.keypoints.xyn.cpu().numpy()
-        
-        face_color = (0, 255, 255)
-        left_color = (0, 255, 0)
-        right_color = (255, 255, 0)
-        
-        skeleton_cfg = [
-            (0, 1, face_color), (0, 2, face_color), (1, 3, face_color), (2, 4, face_color),
-            (5, 7, left_color), (7, 9, left_color), (5, 11, left_color), 
-            (11, 13, left_color), (13, 15, left_color),
-            (6, 8, right_color), (8, 10, right_color), (6, 12, right_color), 
-            (12, 14, right_color), (14, 16, right_color),
-            (5, 6, (0, 165, 255)), (11, 12, (0, 165, 255))
-        ]
-        
-        for idx in range(len(conf_data)):
-            if conf_data[idx] < conf:
-                continue
-            box = xyxy_data[idx].astype(int)
-            
-            box_color = (0, 0, 255)
-            cv2.rectangle(frame_copy, (box[0], box[1]), (box[2], box[3]), box_color, 2)
-            
-            label = f"person {conf_data[idx]:.2f}"
-            (text_w, text_h), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-            cv2.rectangle(frame_copy, (box[0], box[1] - text_h - 4), (box[0] + text_w + 4, box[1]), box_color, -1)
-            cv2.putText(frame_copy, label, (box[0] + 2, box[1] - 2),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-            
-            kp = kpts_data[idx]
-            for pt1_idx, pt2_idx, color in skeleton_cfg:
-                if pt1_idx < len(kp) and pt2_idx < len(kp):
-                    kp1, kp2 = kp[pt1_idx], kp[pt2_idx]
-                    x1, y1 = int(kp1[0] * w), int(kp1[1] * h)
-                    x2, y2 = int(kp2[0] * w), int(kp2[1] * h)
-                    if x1 > 0 and y1 > 0 and x2 > 0 and y2 > 0:
-                        cv2.line(frame_copy, (x1, y1), (x2, y2), color, 2)
-                        
-            for k_idx, pt in enumerate(kp):
-                x, y = int(pt[0] * w), int(pt[1] * h)
-                if x > 0 and y > 0:
-                    if k_idx < 5:
-                        c = face_color
-                    elif k_idx % 2 != 0:
-                        c = left_color
-                    else:
-                        c = right_color
-                    cv2.circle(frame_copy, (x, y), 4, c, -1)
-                    
-        return frame_copy
 
-def parse_triton_yolo_pose(raw_output, img_w, img_h, conf_threshold=0.45, iou_threshold=0.45):
+def parse_triton_yolo_pose(raw_output, img_w, img_h, conf_threshold=0.08, iou_threshold=0.45):
     data = raw_output[0].T
+    # YOLO Pose 每筆輸出至少有 bbox/conf（5）+ 17 個 (x, y, score) 關鍵點（51）。
+    # 格式不符時不可當成有效姿態，讓呼叫端降級至原生 YOLO Pose。
+    if data.ndim != 2 or data.shape[1] < 56:
+        return None
     scores = data[:, 4]
     valid_indices = np.where(scores >= conf_threshold)[0]
     if len(valid_indices) == 0:
@@ -232,6 +222,18 @@ def parse_triton_yolo_pose(raw_output, img_w, img_h, conf_threshold=0.45, iou_th
     
     kpts_raw = final_data[:, 5:]
     N = kpts_raw.shape[0]
+    kpt_scores = kpts_raw[:, 2::3]
+    # 低分雜訊偶爾仍會有 bbox，卻完全沒有可用人體關節；若將它送到前端，
+    # Canvas 只能畫框而不會有骨架。至少六個可信關鍵點才接受 Triton 結果。
+    pose_is_valid = np.count_nonzero(kpt_scores >= 0.20, axis=1) >= 6
+    if not np.any(pose_is_valid):
+        return None
+
+    final_boxes_xyxy = final_boxes_xyxy[pose_is_valid]
+    final_scores = final_scores[pose_is_valid]
+    final_data = final_data[pose_is_valid]
+    kpts_raw = kpts_raw[pose_is_valid]
+    N = kpts_raw.shape[0]
     kpts_xyn = np.zeros((N, 17, 3), dtype=np.float32)
     for k in range(17):
         kpts_xyn[:, k, 0] = kpts_raw[:, k*3] / 640.0
@@ -263,35 +265,15 @@ try:
             triton_client = None
     else:
         triton_client = None
-except Exception as e:
-    print(f"🚀 [GPU 加速] 自動避開未就緒的 Triton 通道，直接啟動原生 Apple GPU (MPS) 超級加速引擎！")
+except Exception:
     triton_client = None
 
 # =========================================================================
-# 🌟 Action Transformer 模型架構
+# 🌟 全域載入模型
 # =========================================================================
-class ActionTransformer(nn.Module):
-    def __init__(self, input_dim=34, seq_len=30, num_classes=2):
-        super(ActionTransformer, self).__init__()
-        self.embedding = nn.Linear(input_dim, 64)
-        encoder_layer = nn.TransformerEncoderLayer(d_model=64, nhead=4, dim_feedforward=128, batch_first=True)
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=2)
-        self.fc = nn.Sequential(
-            nn.Linear(64, 32), nn.ReLU(), nn.Linear(32, num_classes)
-        )
-    def forward(self, x):
-        x = self.embedding(x)
-        x = self.transformer(x)
-        return self.fc(x.mean(dim=1))
-
-# =========================================================================
-# 🌟 全域載入官方模型與時序模型（🚨 已防禦 Mac MPS 崩潰 Bug）
-# =========================================================================
-# 🧠 智慧 Mac ANE/GPU CoreML 加速載入器
 pose_model_name = "yolo11s-pose.pt"
 coreml_model_name = "yolo11s-pose.mlpackage"
 
-# 如果本地有 CoreML 版本，直接加載它；如果沒有但有 pt 檔，我們自動導出它！
 if not os.path.exists(coreml_model_name) and os.path.exists(pose_model_name):
     try:
         print("🔄 首次載入：正在將 YOLO Pose 導出為 CoreML 格式以啟用 Mac 神經引擎加速...")
@@ -302,64 +284,38 @@ if not os.path.exists(coreml_model_name) and os.path.exists(pose_model_name):
     except Exception as e:
         print(f"⚠️ CoreML 導出失敗: {e}，將使用原生 CPU 模式。")
         
-if os.path.exists(coreml_model_name):
-    print("🔥 [神經引擎啟動] 成功載入 CoreML 格式 YOLO Pose，運行於 Apple Silicon ANE/GPU 加速通道！")
-    yolo_pose_model = YOLO(coreml_model_name)
-else:
-    print("ℹ️  載入 PyTorch 格式 YOLO Pose，運行於標準 CPU 模式。")
-    yolo_pose_model = YOLO(pose_model_name)
+# 使用 PyTorch 格式 YOLO Pose，確保 .keypoints.xy 正確輸出
+yolo_pose_model = YOLO(pose_model_name)
 
-yolo_env_model = RTDETR("rtdetr-l.pt")   
-
-# 將模型固定在安全裝置上
 try:
     if not coreml_model_name in str(yolo_pose_model.ckpt_path if hasattr(yolo_pose_model, 'ckpt_path') else ''):
         yolo_pose_model.to(device)
 except Exception:
     pass
 
-try:
-    yolo_env_model.to(device)
-except Exception:
-    pass
-
-# ─── 🛠️ 修正：直接對齊目前檔案所在的 tools/ 資料夾路徑 ───
-weights_path = os.path.join(CURRENT_DIR, "action_transformer.pth")
-
-if os.path.exists(weights_path):
-    transformer_model = ActionTransformer().to(device)
-    transformer_model.load_state_dict(torch.load(weights_path, map_location=device))
-    transformer_model.eval()
-    print("🔥 所有模型載入成功，多任務平行化管線就緒！")
-else:
-    print(f"⚠️ 找不到 action_transformer.pth (預期路徑: {weights_path})，將使用模擬機制運行時序推理。")
-    transformer_model = None
-
 output_frames = {}
 frames_lock = threading.Lock()
 
-# ─── 即時偵測廣播（非阻塞背景推送）────────────────────
+# ─── 🎯 動態/即時畫框數據推送 ────────────────────
 _BACKEND_DETECT_URL = "http://localhost:8000/events/live-detection"
-_BACKEND_API_KEY = os.environ.get("EVENT_API_KEY", "nAK4h8ARAJMjCSoWJ-uErx2KyZKGDF-jcXqmMUpkM_o")
 
-def _push_detection(persons_list: list):
-    """在背景 thread 把這幀偵測結果推送給後端，前端 canvas 訂閱後畫框"""
+def _push_detection(payload_dict: dict):
     try:
-        _requests.post(
+        resp = _requests.post(
             _BACKEND_DETECT_URL,
-            json={"persons": persons_list},
-            headers={"X-API-Key": _BACKEND_API_KEY},
+            json=payload_dict,
+            headers={"X-API-Key": VALID_API_KEY, "Content-Type": "application/json"},
             timeout=0.5
         )
-    except Exception:
-        pass  # 推送失敗不影響主迴圈
+        if resp.status_code != 200:
+            print(f"⚠️ [_push_detection Error] HTTP {resp.status_code}: {resp.text}")
+    except Exception as err:
+        print(f"⚠️ [_push_detection Exception] {err}")
 
-# ─── 🚀 偵測結果推送 Queue（節流版，避免每幀建立新 Thread）────────────────────
 import queue as _queue
 _detection_queue: _queue.Queue = _queue.Queue(maxsize=10)
 
 def _detection_queue_worker():
-    """單一常駐背景 Thread，消費推送佇列，避免每幀建立新 Thread 的開銷"""
     while True:
         try:
             data = _detection_queue.get(timeout=1.0)
@@ -371,108 +327,91 @@ _detection_bg_thread = threading.Thread(target=_detection_queue_worker, daemon=T
 _detection_bg_thread.start()
 
 # =========================================================================
-# 📹 核心：多鏡頭平行巡邏的 Edge Worker (極速流暢優化版)
+# 📹 核心：多鏡頭 Edge Worker (精簡純淨版：姿態跌倒 + 模組 G 環境巡檢)
 # =========================================================================
 def camera_worker(camera_id, video_source):
-    global producer, device, yolo_pose_model, yolo_env_model, transformer_model, output_frames, frames_lock, triton_client
+    global producer, device, yolo_pose_model, output_frames, frames_lock, triton_client
     
+    # 🎯 檢查 video_source 是否為數字 (例如 "0" 或 "1")，如果是，則轉換為整數 (供 OpenCV 直接讀取本地實體/虛擬鏡頭)
+    if isinstance(video_source, str) and video_source.isdigit():
+        video_source = int(video_source)
+
     print(f"🚀 鏡頭頻道 [{camera_id}] 啟動拉流：{video_source}")
+    demo_video_path = os.path.join(PROJECT_ROOT, "test_demo", "test1.mp4")
     
-    # ─── 📡 智慧串流拉取邏輯 (優先採用 GStreamer 硬體解碼管道) ───
+    cap = None
     if isinstance(video_source, str) and video_source.startswith("rtsp://"):
-        # 修正 IPv6 及 UDP 競態問題，指定 127.0.0.1 與 TCP 協定
         rtsp_url_ipv4 = video_source.replace("localhost", "127.0.0.1")
         gst_pipeline = (
             f"rtspsrc location={rtsp_url_ipv4} protocols=tcp latency=0 ! "
             f"rtph264depay ! h264parse ! decodebin ! videoconvert ! video/x-raw, format=BGR ! appsink drop=true sync=false"
         )
-        print(f"🚀 [{camera_id}] 成功點火 GStreamer 硬體加速拉流管道！")
+        print(f"🚀 [{camera_id}] 正在嘗試點火 GStreamer 硬體解碼拉流...")
         cap = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
-        
-        if not cap.isOpened():
-            print(f"⚠️ [{camera_id}] GStreamer 拉流未開啟，降級使用 FFMPEG...")
-            cap = cv2.VideoCapture(video_source, cv2.CAP_FFMPEG)
-    else:
-        # 本地影片或一般的 webcam 影像源
-        cap = cv2.VideoCapture(video_source)
-        
-    if not cap.isOpened(): 
-        print(f"❌ 鏡頭頻道 [{camera_id}] 無法開啟影像源: {video_source}")
-        return
+        if cap is not None and cap.isOpened():
+            ret_test, _ = cap.read()
+            if not ret_test:
+                cap.release()
+                cap = None
 
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # 清空積壓影格以提升 FPS 與實時度
+        if cap is None or not cap.isOpened():
+            cap = cv2.VideoCapture(video_source, cv2.CAP_FFMPEG)
+            if cap is not None and cap.isOpened():
+                ret_test, _ = cap.read()
+                if not ret_test:
+                    cap.release()
+                    cap = None
+    else:
+        cap = cv2.VideoCapture(video_source)
+
+    is_using_demo_video = False
+    if cap is None or not cap.isOpened():
+        if os.path.exists(demo_video_path):
+            print(f"📱 [{camera_id}] 未偵測到實體相機，自動啟用備援：自動加載演示影片 ({demo_video_path}) 進行無縫循環推流！")
+            cap = cv2.VideoCapture(demo_video_path)
+            is_using_demo_video = True
+        else:
+            print(f"❌ 鏡頭頻道 [{camera_id}] 無法開啟影像源: {video_source} 且未找到演示影片")
+            return
+
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
     fps = cap.get(cv2.CAP_PROP_FPS)
-    if fps <= 0 or np.isnan(fps) or fps < 24.0: fps = 30.0  # 預設推升影格率至 30.0 FPS，防止低幀率限制硬體極速
+    if fps <= 0 or np.isnan(fps) or fps < 24.0: fps = 30.0
     frame_delay = 1.0 / fps  
 
-    # =========================================================================
-    # 📼 [前後 5 秒錄影緩衝區初始化 - 降解析度省記憶體版]
-    # =========================================================================
     PRE_SEC = 5
     POST_SEC = 5
-    MAX_PRE_FRAMES = int(fps * PRE_SEC)      # 前 5 秒暫存幀數
-    MAX_POST_FRAMES = int(fps * POST_SEC)    # 後 5 秒暫存幀數
+    MAX_PRE_FRAMES = int(fps * PRE_SEC)
+    MAX_POST_FRAMES = int(fps * POST_SEC)
     
-    # 環形緩衝區：自動拋棄最舊的幀，永遠只留最新 5 秒
     pre_video_buffer = deque(maxlen=MAX_PRE_FRAMES)
     post_video_buffer = []
     is_recording_post = False
     post_frame_count = 0
 
-    frame_window = deque(maxlen=30)
-    cached_act_pred_class = 1
-    cached_act_confidence = 0.0
-    vlm_triggered = False
-    vlm_report = "Waiting for alert..."
-    consecutive_fall_frames = 0
-    
-    last_pose_feat = np.zeros(34, dtype=np.float32)
-    has_seen_person = False
-    last_valid_annotated_frame = None  
     frame_count = 0
-    normal_h_reference = None
-    ever_detected_fall = False  
-    standing_recovery_count = 0
     fps_calc_time = time.time()
     fps_calc_counter = 0
     measured_fps = 0.0
     
-    # 💡 靜態型別防禦：預先初始化 Block 變數以消除 Pylance 未定義/Unbound 警告
     numeric_id = 1
-    event_label = "fall"
-    final_score = 0.0
-    yolo_thresh = 0.45
-    snapshot_name = ""
-    video_name = ""
-    final_snapshot_path = ""
-    final_video_path = ""
     
-    # 💡 效能快取：用於跳幀優化與降載
     results_pose = None
     last_annotated_frame = None
-    cached_results_env = None
+    vlm_report = "Waiting for alert..."
 
-    # 💡 實例化外掛大腦物件 (僅保留模組 G：環境安全巡檢)
-    sanity_checker = RoutineSanityChecker(camera_id, interval_seconds=15.0) if RoutineSanityChecker is not None else None
-    bed_detector = None
-    wandering_detector = None
-    motion_detector = None
-    audio_engine = None
-    chair_slitter = None
+    # 🎯 多人追蹤狀態字典 { track_id: dict }
+    person_states = {}
 
-
-
-    # ─── 📤 RTSP WebRTC 推流初始化 (MediaMTX 方向二) ───
     rtsp_writer_proc = None
-    out_w, out_h = 1280, 720  # 預設推流解析度（可被 cap 動態更新）
+    out_w, out_h = 1280, 720
     if camera_id == "Room_301_Bed":
         output_rtsp_url = "rtsp://localhost:8554/cam_out"
         cw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         ch = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         out_w = cw if cw > 0 else 1280
         out_h = ch if ch > 0 else 720
-
 
         ffmpeg_cmd = [
             'ffmpeg', '-y', '-f', 'rawvideo', '-vcodec', 'rawvideo',
@@ -485,11 +424,10 @@ def camera_worker(camera_id, video_source):
 
         try:
             rtsp_writer_proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
-            print(f"📡 [{camera_id}] 已成功啟動 MediaMTX Mac 硬體加速推流 (h264_videotoolbox) ➔ {output_rtsp_url}")
+            print(f"📡 [{camera_id}] 已成功啟動 MediaMTX Mac 硬體加速推流 ➔ {output_rtsp_url}")
         except Exception as e:
             print(f"⚠️ [{camera_id}] FFmpeg 推流啟動失敗: {e}")
 
-    # 🚀 [異步推流佇列] 將 FFmpeg 寫入解耦至獨立高優先級 Thread，確保 MediaMTX 永遠穩定 24 FPS 影格率
     latest_push_frame = None
     latest_push_lock = threading.Lock()
     push_running = True
@@ -524,568 +462,368 @@ def camera_worker(camera_id, video_source):
         ret, frame = cap.read()
         
         if not ret:
-            print(f"🔄 [{camera_id}] 測試影片播放完畢，自動重頭循環拉流，保持邊緣端管線暢通...")
-            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  
-            vlm_triggered = False  
-            ever_detected_fall = False
-            standing_recovery_count = 0
-            is_recording_post = False
-            post_video_buffer.clear()
-            frame_window.clear()
-            continue                             
+            if is_using_demo_video:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            else:
+                if os.path.exists(demo_video_path):
+                    cap.release()
+                    cap = cv2.VideoCapture(demo_video_path)
+                    is_using_demo_video = True
+                else:
+                    time.sleep(1.0)
+            
+            # 重製計數器，防止迴圈重新開始時殘留狀態
+            for p_id in person_states:
+                person_states[p_id]["consecutive_fall_frames"] = 0
+                person_states[p_id]["ever_detected_fall"] = False
+                person_states[p_id]["vlm_triggered"] = False
+                person_states[p_id]["standing_recovery_count"] = 0
 
-        # ⚡ 保持 1280x720 高清解析度，確保視覺畫質與照片完全一致
+            if not is_recording_post:
+                post_video_buffer.clear()
+            continue
+
         img_h, img_w, _ = frame.shape
         if img_w != 1280 or img_h != 720:
             frame = cv2.resize(frame, (1280, 720))
             img_h, img_w = 720, 1280
 
         frame_count += 1
-        buffered_frame = frame
-        pre_video_buffer.append(buffered_frame)
+        pre_video_buffer.append(frame)
 
         if is_recording_post:
-            post_video_buffer.append(buffered_frame)
+            post_video_buffer.append(frame)
             post_frame_count += 1
 
-        # 💡 時序跳幀推論 (每 4 幀執行一次 YOLO Pose 檢測，自信度下修至 0.15 捕獲所有長者姿態)
-        if frame_count % 4 == 0 or results_pose is None:
+        pose_was_updated = frame_count % 4 == 0 or results_pose is None
+        if pose_was_updated:
             time.sleep(0.001)
             yolo_pose_success = False
             if triton_client is not None:
-                try:
-                    img_resized = cv2.resize(frame, (640, 640))
-                    img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
-                    img_normalized = img_rgb.astype(np.float32) / 255.0
-                    img_transposed = np.transpose(img_normalized, (2, 0, 1))
-                    input_tensor_triton = np.expand_dims(img_transposed, axis=0)
-
-                    inputs = [grpcclient.InferInput("images", input_tensor_triton.shape, "FP32")]
-                    inputs[0].set_data_from_numpy(input_tensor_triton)
-                    outputs = [grpcclient.InferRequestedOutput("output0")]
-
-                    response = triton_client.infer(model_name="yolo_pose", inputs=inputs, outputs=outputs)
-                    raw_output = response.as_numpy("output0")
-
-                    parsed = parse_triton_yolo_pose(raw_output, img_w, img_h, conf_threshold=0.15)
-                    if parsed is not None:
-                        mock_kpts = MockPoseKeypoints(parsed["xyn"])
-                        mock_boxes = MockPoseBoxes(parsed["conf"], parsed["xywh"], parsed["xyxy"])
-                        results_pose = [MockPoseResults(mock_kpts, mock_boxes, frame)]
-                    else:
-                        results_pose = [MockPoseResults(MockPoseKeypoints(np.zeros((0, 17, 3))), MockPoseBoxes(np.zeros(0), np.zeros((0, 4)), np.zeros((0, 4))), frame)]
-                    yolo_pose_success = True
-                except Exception as triton_err:
-                    print(f"⚠️ [{camera_id}] Triton YOLO Pose 異常 ({triton_err})，觸發本地 CPU 備援...")
+                # 暫無 Triton MOT
+                pass
             
             if not yolo_pose_success:
-                results_pose = yolo_pose_model(frame, verbose=False, conf=0.15, device=device)
+                # 使用 ByteTrack 多人追蹤
+                results_pose = yolo_pose_model.track(frame, persist=True, tracker="bytetrack.yaml", verbose=False, conf=0.08, device=device)
 
             last_annotated_frame = frame.copy()
 
         annotated_frame = last_annotated_frame.copy() if last_annotated_frame is not None else frame.copy()
 
+        # ─── 🎯【多目標追蹤與跌倒判定】───────────────────
+        active_track_ids = set()
+        persons_out_list = []
+        any_fall_triggered_this_frame = False
         
-        # =========================================================================
-        # ⚡ [Triton 整合] 使用 Triton gRPC 進行環境目標辨識 (1/30 幀抽樣，降低 CPU 與 IPC 開銷)
-        # =========================================================================
-        if frame_count % 60 == 0 or cached_results_env is None:  # 每 2 秒抽樣一次環境，降低 CPU 開銷
-            results_env = None
+        if results_pose and len(results_pose[0].boxes) > 0:
+            boxes = results_pose[0].boxes
+            conf_data = boxes.conf.cpu().numpy()
+            boxes_xyxy = boxes.xyxy.cpu().numpy()
             
-            # 若 Triton 連線狀態良好，執行 gRPC 雲端/容器推理
-            if triton_client is not None:
-                try:
-                    # 1. 影像預處理 640x640 [1, 3, 640, 640]
-                    img_resized = cv2.resize(frame, (640, 640))
-                    img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
-                    img_normalized = img_rgb.astype(np.float32) / 255.0
-                    img_transposed = np.transpose(img_normalized, (2, 0, 1))
-                    input_tensor_triton = np.expand_dims(img_transposed, axis=0)
-
-                    # 2. 建構 Triton 格式
-                    inputs = [grpcclient.InferInput("images", input_tensor_triton.shape, "FP32")]
-                    inputs[0].set_data_from_numpy(input_tensor_triton)
-                    outputs = [grpcclient.InferRequestedOutput("output0")]
-
-                    # 3. 發送推論
-                    response = triton_client.infer(model_name="rt_detr", inputs=inputs, outputs=outputs)
-                    raw_output = response.as_numpy("output0")  # Shape: [1, 300, 6]
-
-                    # 4. 反向映射回原始影像解析度，並包裝成 MockResults 物件
-                    scale_x = img_w / 640.0
-                    scale_y = img_h / 640.0
-                    mock_boxes = []
-                    
-                    for det in raw_output[0]:
-                        x1, y1, x2, y2, score, cls_id = det
-                        if score < 0.35:  # 過濾低置信度
-                            continue
-                        
-                        # 縮放座標回原始畫面大小
-                        x1_scaled = x1 * scale_x
-                        y1_scaled = y1 * scale_y
-                        x2_scaled = x2 * scale_x
-                        y2_scaled = y2 * scale_y
-                        
-                        mock_boxes.append(MockBox([x1_scaled, y1_scaled, x2_scaled, y2_scaled], score, cls_id))
-                    
-                    results_env = [MockResults(mock_boxes)]
-                except Exception as triton_err:
-                    print(f"⚠️ [{camera_id}] Triton 引擎異常 ({triton_err})，觸發自動降級機制，改用本地 {device} 推理...")
-                    triton_client = None  # 👈 自動切斷 Triton，避免後續重複報錯與重試
-                    results_env = yolo_env_model(frame, verbose=False, conf=0.35, iou=0.45, device=device)
+            track_ids = []
+            if boxes.id is not None:
+                track_ids = boxes.id.int().cpu().tolist()
             else:
-                # 備援：若無連線直接走本地推載裝置推理
-                results_env = yolo_env_model(frame, verbose=False, conf=0.35, iou=0.45, device=device)
-            
-            cached_results_env = results_env 
-        else:
-            results_env = cached_results_env 
-        
-        detected_objects = []
-        bed_box_xyxy = None  
-        
-        if results_env and len(results_env[0].boxes) > 0:
-            for box in results_env[0].boxes:
-                cls_id = int(box.cls[0].item())
-                lbl_name = yolo_env_model.names[cls_id]
+                track_ids = [i for i in range(len(conf_data))]
                 
-                if lbl_name in ["wheelchair", "bed", "chair", "couch", "bottle", "cup"] and lbl_name not in detected_objects:
-                    detected_objects.append(lbl_name)
-                    
-                if lbl_name == "bed": 
-                    bed_box_xyxy = box.xyxy.cpu().numpy()[0]
-                    
-        current_pose_feat = np.zeros(34, dtype=np.float32)
-        is_current_frame_valid = False
-        is_physically_lying = False  
-        is_occluded_fall = False     
-        is_leaving_bed = False       
-        is_agitated = False
-        is_chair_slipped = False  
-        
-        person_lying_flags = []
-        if results_pose and len(results_pose[0].keypoints) > 0:
-            kpts_obj = results_pose[0].keypoints
-            try:
-                kpts_data = kpts_obj.xyn.cpu().numpy() 
-                conf_data = results_pose[0].boxes.conf.cpu().numpy()  
-                boxes_data = results_pose[0].boxes.xywh.cpu().numpy()  
-                boxes_xyxy = results_pose[0].boxes.xyxy.cpu().numpy()
+            for i, track_id in enumerate(track_ids):
+                active_track_ids.add(track_id)
+                conf_val = conf_data[i]
+                raw_box = boxes_xyxy[i]
                 
-                if kpts_data.ndim == 3 and kpts_data.shape[0] > 0:
-                    best_idx = -1; max_score = -1.0
-                    for idx in range(kpts_data.shape[0]):
-                        if idx < len(conf_data) and conf_data[idx] < 0.30:
-                            person_lying_flags.append(False)
-                            continue
-                        
-                        kp = kpts_data[idx]
-                        _, _, w_box, h_box = boxes_data[idx] if idx < len(boxes_data) else (0, 0, 0, 0)
-                        
-                        # 🚀 [業界標準：多人姿態解算] 獨立對每位檢出目標解算體角與長寬比
-                        person_lying = False
-                        try:
-                            shoulder_x = (kp[5][0] + kp[6][0]) / 2.0; shoulder_y = (kp[5][1] + kp[6][1]) / 2.0
-                            hip_x = (kp[11][0] + kp[12][0]) / 2.0; hip_y = (kp[11][1] + kp[12][1]) / 2.0
-                            
-                            # 🚀 [業界標準 1] 嚴格幾何判斷：肩臀角度傾斜近水平 (<25度) 且 寬高比 > 1.2
-                            body_angle = get_body_angle_jit(shoulder_x, shoulder_y, hip_x, hip_y)
-                            if not (shoulder_x == 0 or hip_x == 0):
-                                aspect_ratio = w_box / (h_box + 1e-6)
-                                if body_angle < 45.0 and aspect_ratio > 0.8:
-                                    is_physically_lying = True
-                                    person_lying = True
-                        except Exception: pass
-
-                        person_lying_flags.append(person_lying)
-
-
-                        if bed_detector is not None:
-                            is_leaving_bed = bed_detector.process(kp, bed_box_xyxy, img_h, is_physically_lying, producer)
-                        if motion_detector is not None:
-                            is_agitated = motion_detector.process(kp, is_physically_lying, producer)
-                        if chair_slitter is not None:
-                            is_chair_slipped = chair_slitter.process(kp, results_env, img_h, is_physically_lying, producer)
-
-            except Exception: pass
-
-        # 實時推送偵測結果給前端 canvas（無額外推理負擔）
-        if results_pose and len(results_pose[0].keypoints) > 0:
-            try:
-                _conf = results_pose[0].boxes.conf.cpu().numpy()
-                _xyxy = results_pose[0].boxes.xyxy.cpu().numpy()
-                _kps  = results_pose[0].keypoints.xyn.cpu().numpy()  # 正規化座標 0-1
-                persons_out = []
-                for _i in range(len(_xyxy)):
-                    if _i < len(_conf) and _conf[_i] < 0.15: continue
-                    _kp_list = []
-                    if _kps.ndim == 3 and _i < _kps.shape[0]:
-                        for _kp in _kps[_i]:
-                            _kp_list.append([round(float(_kp[0]), 4), round(float(_kp[1]), 4)])
+                raw_kpts = None
+                if hasattr(results_pose[0].keypoints, 'xy') and results_pose[0].keypoints.xy is not None:
+                    raw_kpts = results_pose[0].keypoints.xy.cpu().numpy()[i]
+                elif hasattr(results_pose[0].keypoints, 'xyn') and results_pose[0].keypoints.xyn is not None:
+                    raw_kpts = results_pose[0].keypoints.xyn.cpu().numpy()[i].copy()
+                    raw_kpts[:, 0] *= img_w
+                    raw_kpts[:, 1] *= img_h
                     
-                    norm_bbox = [
-                        round(float(_xyxy[_i][0] / img_w), 4),
-                        round(float(_xyxy[_i][1] / img_h), 4),
-                        round(float(_xyxy[_i][2] / img_w), 4),
-                        round(float(_xyxy[_i][3] / img_h), 4)
-                    ]
-                    # 🚀 [多人姿態個體化狀態標記] 連結每個人體獨立算出的 person_lying_flags 與系統告警狀態
-                    indiv_fall = bool(ever_detected_fall or should_trigger_fall)
-                    if _i < len(person_lying_flags):
-                        indiv_fall = indiv_fall or person_lying_flags[_i]
-
-
-                    persons_out.append({
-                        "bbox": norm_bbox,
-                        "conf": round(float(_conf[_i]), 2),
-                        "kps":  _kp_list,
-                        "is_fall": indiv_fall
-                    })
-                if persons_out:
+                if track_id not in person_states:
+                    person_states[track_id] = {
+                        "tracker": PersonTrackerEMA(alpha=0.35, max_missing_frames=15),
+                        "consecutive_fall_frames": 0,
+                        "ever_detected_fall": False,
+                        "vlm_triggered": False,
+                        "standing_recovery_count": 0
+                    }
+                
+                p_state = person_states[track_id]
+                if raw_kpts is not None:
+                    raw_kpts = np.asarray(raw_kpts, dtype=np.float32)[:, :2]
+                    
+                smooth_box, smooth_kpts, active_conf = p_state["tracker"].update(raw_box, raw_kpts, conf_val)
+                
+                # 姿態判定
+                body_angle = None
+                box_aspect_ratio = None
+                if smooth_kpts is not None and len(smooth_kpts) >= 13:
                     try:
-                        _detection_queue.put_nowait(persons_out)  # 節流推送，佇列滿則丟棄此幀
-                    except _queue.Full:
+                        shoulder_x = (float(smooth_kpts[5][0]) + float(smooth_kpts[6][0])) / 2.0
+                        shoulder_y = (float(smooth_kpts[5][1]) + float(smooth_kpts[6][1])) / 2.0
+                        hip_x = (float(smooth_kpts[11][0]) + float(smooth_kpts[12][0])) / 2.0
+                        hip_y = (float(smooth_kpts[11][1]) + float(smooth_kpts[12][1])) / 2.0
+                        body_angle = float(get_body_angle_jit(shoulder_x, shoulder_y, hip_x, hip_y))
+                    except Exception:
                         pass
-            except Exception:
-                pass
 
-        if not is_current_frame_valid and has_seen_person: current_pose_feat = last_pose_feat.copy()
-
-        frame_window.append(current_pose_feat)
-        status_text = "Normal"; color = (0, 255, 0); act_confidence = 0.0; draw_border = True   
-        pred_class = 1  
-        
-        if len(frame_window) == 30:
-            if frame_count % 3 == 0 or cached_act_confidence == 0.0:
-                act_success = False
-                if triton_client is not None:
+                if smooth_box is not None:
                     try:
-                        np_window = np.array(frame_window, dtype=np.float32)
-                        np_window_expanded = np.expand_dims(np_window, axis=0)
-                        inputs = [grpcclient.InferInput("input", np_window_expanded.shape, "FP32")]
-                        inputs[0].set_data_from_numpy(np_window_expanded)
-                        outputs = [grpcclient.InferRequestedOutput("output")]
-                        
-                        response = triton_client.infer(model_name="action_transformer", inputs=inputs, outputs=outputs)
-                        raw_logits = response.as_numpy("output")
-                        
-                        exp_logits = np.exp(raw_logits - np.max(raw_logits, axis=-1, keepdims=True))
-                        prob = exp_logits / np.sum(exp_logits, axis=-1, keepdims=True)
-                        pred_class = np.argmax(prob, axis=1)[0]
-                        act_confidence = float(prob[0][pred_class])
-                        act_success = True
-                    except Exception as triton_err:
-                        print(f"⚠️ [{camera_id}] Triton ACT 異常 ({triton_err})，觸發本地 CPU 備援...")
+                        bw = abs(float(smooth_box[2]) - float(smooth_box[0]))
+                        bh = abs(float(smooth_box[3]) - float(smooth_box[1]))
+                        if bh > 0:
+                            box_aspect_ratio = bw / bh
+                    except Exception:
+                        pass
                 
-                if not act_success:
-                    if transformer_model is not None:
-                        np_window = np.array(frame_window, dtype=np.float32)
-                        input_tensor = torch.from_numpy(np_window).unsqueeze(0).to(device)
-                        with torch.no_grad():
-                            outputs = transformer_model(input_tensor)
-                            prob = torch.softmax(outputs, dim=1)
-                            pred_class = torch.argmax(prob, dim=1).item()
-                            act_confidence = prob[0][pred_class].item()
+                torso_is_horizontal = (body_angle is not None and body_angle <= 60.0)
+                body_is_wide = (box_aspect_ratio is not None and box_aspect_ratio >= 0.95)
+                is_physically_lying = torso_is_horizontal or body_is_wide
+                
+                if pose_was_updated:
+                    if is_physically_lying:
+                        p_state["consecutive_fall_frames"] += 1
                     else:
-                        pred_class = 0 if is_physically_lying else 1
-                        act_confidence = 0.75 if is_physically_lying else 0.0
+                        p_state["consecutive_fall_frames"] = 0
                 
-                cached_act_pred_class = pred_class
-                cached_act_confidence = act_confidence
-            else:
-                pred_class = cached_act_pred_class
-                act_confidence = cached_act_confidence
-
-        # 🚀 [跌倒判定] 只要幾何姿態符合躺平，或 AI 時序分析大於 0.60，即判定為跌倒
-        raw_fall_detected = False
-        if has_seen_person:
-            if is_physically_lying:
-                raw_fall_detected = True
-            elif len(frame_window) == 30 and pred_class == 0 and act_confidence > 0.60:
-                raw_fall_detected = True
-
-
-        # 🚀 [業界標準 3] 影格連貫防去噪防線 (Debounce)：必須連續 15 影格 (約 0.5 秒) 穩定符合才允許發射警報
-        if raw_fall_detected:
-            consecutive_fall_frames += 1
-        else:
-            consecutive_fall_frames = max(0, consecutive_fall_frames - 1)
-
-        should_trigger_fall = (consecutive_fall_frames >= 15)
-
-        if audio_engine is not None:
-            should_trigger_fall, act_confidence, fusion_reason = audio_engine.listen_and_fuse(should_trigger_fall, act_confidence)
-            if fusion_reason is not None: vlm_report = "Audio Fused!"
-
-        is_wandering = wandering_detector.process(is_current_frame_valid, should_trigger_fall, ever_detected_fall, producer) if wandering_detector is not None else False
-        
-        if sanity_checker is not None:
-            check_status = sanity_checker.process(frame, ever_detected_fall, is_leaving_bed, is_wandering, producer)
-            if check_status is not None: vlm_report = check_status
-
-        # 💡 自動恢復與重置機制：若摔倒後長者自行站起並維持站姿，自動解除告警鎖定
-        if ever_detected_fall and not should_trigger_fall and has_seen_person and not is_physically_lying:
-            standing_recovery_count += 1
-            if standing_recovery_count >= 90:  # 約 3 秒姿態穩定恢復
-                ever_detected_fall = False
-                vlm_triggered = False
-                standing_recovery_count = 0
-                vlm_report = "Self-Recovered (Person Stood Up)"
-                print(f"ℹ️ [{camera_id}] 偵測到長者已自行站起並維持姿態穩定，系統已自動重置監測狀態！")
-        else:
-            standing_recovery_count = 0
-
-        if should_trigger_fall or is_chair_slipped:
-            status_text = "FALL / CHAIR SLIP DETECTED!" if is_chair_slipped else "FALL DETECTED!"
-            color = (0, 0, 255) 
-            ever_detected_fall = True 
-        elif is_leaving_bed:
-            status_text = "BED EXIT PRE-ALERT"
-            color = (0, 165, 255) 
-        elif is_agitated:
-            status_text = "PATIENT AGITATION (夜間躁動)"
-            color = (0, 255, 255) 
-        elif is_wandering:
-            status_text = "WANDERING ALERT (門口滯留遊走)"
-            color = (255, 0, 255) 
-        else:
-            if len(frame_window) < 30:
-                status_text = "Buffering..."; color = (0, 255, 255); draw_border = False   
-            else:
-                status_text = "Normal"; color = (0, 255, 0)
-
-        # =========================================================================
-        # ⚡ [動態不重複影片與相片上傳 S3] (前後 5 秒錄影邏輯)
-        # =========================================================================
-        if (should_trigger_fall or is_chair_slipped) and not vlm_triggered:
-            vlm_triggered = True  
-            is_recording_post = True  # 👈 觸發後半段 5 秒錄影
-            post_frame_count = 0
-            post_video_buffer = []
-
-            vlm_save_dir = os.path.join(PROJECT_ROOT, "active_learning_dataset", "images")
-            os.makedirs(vlm_save_dir, exist_ok=True)
-
-            numeric_id = 1
-
+                should_trigger_fall = p_state["consecutive_fall_frames"] >= 4
                 
-            event_label = "chair_slip" if is_chair_slipped else "fall"
-            final_score = float(act_confidence) if act_confidence > 0 else 0.70
-            yolo_thresh = 0.45 if event_label == "fall" else 0.35
+                if should_trigger_fall:
+                    p_state["ever_detected_fall"] = True
+                    p_state["standing_recovery_count"] = 0
+                    any_fall_triggered_this_frame = True
+                else:
+                    if p_state["ever_detected_fall"] and not is_physically_lying:
+                        p_state["standing_recovery_count"] += 1
+                        if p_state["standing_recovery_count"] >= 90:
+                            p_state["ever_detected_fall"] = False
+                            p_state["vlm_triggered"] = False
+                            p_state["standing_recovery_count"] = 0
+                            print(f"ℹ️ [{camera_id}] (ID:{track_id}) 偵測到長者已自行站起，重置狀態！")
+                            vlm_report = f"ID:{track_id} Self-Recovered"
 
-            current_time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
-            snapshot_name = f"snapshot_{camera_id}_{current_time_str}.jpg"  
-            video_name = f"fall_clip_{camera_id}_{current_time_str}.mp4"
-            
-            final_snapshot_path = os.path.join(vlm_save_dir, snapshot_name)
-            final_video_path = os.path.join(vlm_save_dir, video_name)
-            
-            # 🌟 [業界標準] 即時監控傳送「乾淨原圖」，但存下的「事故快照/證據」則畫上 AI 骨架與框，方便護理師事後複查
-            annotated_snapshot = annotated_frame  # 使用已繪製骨架與綠/紅框的畫面，確保快照顏色邏輯一致
-            cv2.imwrite(final_snapshot_path, annotated_snapshot)  
+                # 準備輸出 JSON
+                if smooth_box is not None:
+                    norm_bbox = [
+                        round(float(smooth_box[0]) / img_w, 4),
+                        round(float(smooth_box[1]) / img_h, 4),
+                        round(float(smooth_box[2]) / img_w, 4),
+                        round(float(smooth_box[3]) / img_h, 4)
+                    ]
+                    _kp_2d = []
+                    _kp_dict_list = []
+                    if smooth_kpts is not None:
+                        for idx, _kp in enumerate(smooth_kpts):
+                            kx = round(float(_kp[0]) / img_w, 4)
+                            ky = round(float(_kp[1]) / img_h, 4)
+                            kc = round(float(_kp[2]), 2) if len(_kp) > 2 else 0.95
+                            _kp_2d.append([kx, ky])
+                            _kp_dict_list.append({"x": kx, "y": ky, "score": kc, "id": idx})
 
-            # 🌟 [即時告警] 跌倒發生瞬間 (0 秒延遲) 立即發送急件告警，讓前端視窗瞬間跳出告警卡片！
-            local_snap_url = f"http://localhost:8000/images/{os.path.basename(final_snapshot_path)}"
-            local_vid_url = f"http://localhost:8000/images/{os.path.basename(final_video_path)}"
+                    while len(_kp_2d) < 17:
+                        _kp_2d.append([0.0, 0.0])
+                        _kp_dict_list.append({"x": 0.0, "y": 0.0, "score": 0.0, "id": len(_kp_dict_list)})
 
-            if producer is not None:
-                try:
+                    persons_out_list.append({
+                        "id": track_id,
+                        "bbox": norm_bbox,
+                        "conf": round(float(active_conf), 2),
+                        "kps": _kp_2d,
+                        "keypoints": _kp_2d,
+                        "keypoints_detailed": _kp_dict_list,
+                        "is_fall": bool(should_trigger_fall)
+                    })
+
+                # 繪製單人邊框與骨架
+                color = (0, 0, 255) if should_trigger_fall else (0, 255, 0)
+                if smooth_box is not None:
+                    try:
+                        bx1, by1 = int(float(smooth_box[0])), int(float(smooth_box[1]))
+                        bx2, by2 = int(float(smooth_box[2])), int(float(smooth_box[3]))
+                        cv2.rectangle(annotated_frame, (bx1, by1), (bx2, by2), color, 2)
+                        p_label = f"ID:{track_id} {active_conf:.2f}"
+                        cv2.putText(annotated_frame, p_label, (bx1, max(by1 - 8, 20)),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA)
+                        
+                        if smooth_kpts is not None and len(smooth_kpts) >= 17:
+                            skeleton_connections = [
+                                (0,1),(0,2),(1,3),(2,4),(5,6),(5,7),(7,9),(6,8),(8,10),
+                                (5,11),(6,12),(11,12),(11,13),(13,15),(12,14),(14,16)
+                            ]
+                            for a, b in skeleton_connections:
+                                x1, y1 = int(float(smooth_kpts[a][0])), int(float(smooth_kpts[a][1]))
+                                x2, y2 = int(float(smooth_kpts[b][0])), int(float(smooth_kpts[b][1]))
+                                if x1 > 0 and y1 > 0 and x2 > 0 and y2 > 0:
+                                    cv2.line(annotated_frame, (x1, y1), (x2, y2), (255, 229, 0), 2)
+                            for kp in smooth_kpts:
+                                kx, ky = int(float(kp[0])), int(float(kp[1]))
+                                if kx > 0 and ky > 0:
+                                    cv2.circle(annotated_frame, (kx, ky), 5, (0, 221, 255), -1)
+                    except Exception:
+                        pass
+                
+                # ⚡ 跌倒通報邏輯 (獨立針對每個 track_id)
+                if should_trigger_fall and not p_state["vlm_triggered"]:
+                    p_state["vlm_triggered"] = True
+                    
+                    # ⚠️ 修復：如果已經在錄製跌倒後影片，不要清空 buffer，直接共用同一個影片檔案！
+                    if not is_recording_post:
+                        is_recording_post = True
+                        post_frame_count = 0
+                        post_video_buffer = []
+                        
+                        vlm_save_dir = os.path.join(os.path.dirname(PROJECT_ROOT), "backend", "static", "images")
+                        os.makedirs(vlm_save_dir, exist_ok=True)
+                        current_time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+                        
+                        video_name = f"fall_clip_{camera_id}_{current_time_str}.mp4"
+                        final_video_path = os.path.join(vlm_save_dir, video_name)
+                    else:
+                        # 正在錄影中，延用目前的時間戳記與檔名 (避免前端找不到影片)
+                        if 'current_time_str' not in locals():
+                            current_time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+                        if 'final_video_path' not in locals():
+                            video_name = f"fall_clip_{camera_id}_{current_time_str}.mp4"
+                            vlm_save_dir = os.path.join(os.path.dirname(PROJECT_ROOT), "backend", "static", "images")
+                            final_video_path = os.path.join(vlm_save_dir, video_name)
+
+                    snapshot_name = f"snapshot_{camera_id}_ID{track_id}_{current_time_str}.jpg"
+                    final_snapshot_path = os.path.join(vlm_save_dir, snapshot_name)
+                    cv2.imwrite(final_snapshot_path, annotated_frame)
+                    
+                    local_snap_url = f"/images/{os.path.basename(final_snapshot_path)}"
+                    local_vid_url = f"/images/{os.path.basename(final_video_path)}"
+                    
                     instant_payload = {
                         "device_id": numeric_id,
-                        "event_type": event_label,
+                        "camera_id": camera_id,
+                        "location": "Room_301_Bed",
+                        "event_type": "fall",
+                        "person_id": track_id,
                         "clip_path": local_vid_url,
                         "detected_at": datetime.now().isoformat(),
                         "snapshot_path": local_snap_url,
-                        "image_filename": local_snap_url,
-                        "yolo_score": final_score,
-                        "vlm_summary": "【緊急通報】邊緣 AI 即時偵測到長者跌倒！請護理人員立即前往關懷。"
+                        "image_filename": final_snapshot_path,
+                        "yolo_score": round(float(active_conf), 2),
+                        "vlm_summary": f"【緊急通報】邊緣 AI 即時偵測到長者 (ID:{track_id}) 跌倒！請護理人員手動處置。"
                     }
-                    producer.send('processed-reports', value=instant_payload)
-                    producer.flush()
-                    print(f"⚡ [{camera_id}] 【秒級即時告警】跌倒通知已 0 延遲轟入後端告警系統！")
-                except Exception as instant_err:
-                    print(f"⚠️ [{camera_id}] 秒級告警發送異常: {instant_err}")
 
-            # 發送給 HTTP 後端備援 (確保即使沒有 Kafka 也能瞬間彈窗)
+                    if active_conf >= 0.8:
+                        try:
+                            import requests
+                            headers = {"X-API-Key": VALID_API_KEY, "Content-Type": "application/json"}
+                            res = requests.post("http://localhost:8000/events", json=instant_payload, headers=headers, timeout=2.0)
+                            if res.status_code in [200, 201]:
+                                print(f"⚡ [{camera_id}] (ID:{track_id}) 【秒級即時告警】跌倒通知已 0 延遲轟入後端！")
+                        except Exception:
+                            pass
+                    else:
+                        if producer is not None:
+                            instant_payload["vlm_summary"] = None
+                            instant_payload["status"] = "PENDING_VLM_ROUTE"
+                            try:
+                                producer.send('nursing-home-alerts', value=instant_payload)
+                                producer.flush()
+                                print(f"🧠 [{camera_id}] (ID:{track_id}) 跌倒信心偏低，送交 VLM 二次判斷！")
+                            except Exception:
+                                pass
+
+        # 清理消失的 ID
+        keys_to_remove = [tid for tid in person_states.keys() if tid not in active_track_ids]
+        for tid in keys_to_remove:
+            del person_states[tid]
+
+        # 發送繪圖 JSON 給前端
+        if persons_out_list:
             try:
-                import requests
-                headers = {"X-API-Key": "test-key-123456", "Content-Type": "application/json"}
-                res = requests.post("http://localhost:8000/events", json={
-                    "device_id": numeric_id,
-                    "event_type": event_label,
-                    "clip_path": local_vid_url,
-                    "detected_at": datetime.now().isoformat(),
-                    "snapshot_path": local_snap_url,
-                    "yolo_score": float(final_score),
-                    "vlm_summary": "【緊急通報】邊緣 AI 即時偵測到長者跌倒！請護理人員立即前往關懷。"
-                }, headers=headers, timeout=3)
-                print(f"🚨 [{camera_id}] HTTP 直送後端結果: Status={res.status_code}")
-            except Exception as http_err:
-                print(f"⚠️ [{camera_id}] HTTP 告警直連失敗: {http_err}")
-
-
-
-
-        # =========================================================================
-        # 📹 後端錄影合併與 AWS S3 上傳核心 (異步背景執行緒版)
-        # =========================================================================
-        if is_recording_post and post_frame_count >= MAX_POST_FRAMES:
-            is_recording_post = False  # 結束錄影
-            
-            full_10_sec_frames = list(pre_video_buffer) + post_video_buffer
-            
-            def _async_process_video(frames, video_path, snapshot_path, cam_id, num_id, evt_label, f_score, act_conf, is_occluded, prod):
-                print(f"\n🎬 [{cam_id}] 後 5 秒收集完畢！異步背景合成前後 10 秒影片 ({len(frames)} 幀)...")
-                try:
-                    # 💡 HTML5 瀏覽器 (Safari/Chrome) 標準相容編碼 H.264 (avc1)，避免 mp4v 導致 HTML5 <video> 標籤無法解碼
-                    fourcc = cv2.VideoWriter_fourcc(*'avc1')
-                    out = cv2.VideoWriter(video_path, fourcc, fps, (640, 480))
-                    if not out.isOpened():
-                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                        out = cv2.VideoWriter(video_path, fourcc, fps, (640, 480))
-                    for f in frames:
-                        out.write(f)
-                    out.release()
-                    
-                    # 🌟 [純地端本機模式] 儲存於本地資料夾並提供本地端 HTTP 靜態存取網址
-                    local_snapshot_url = f"http://localhost:8000/images/{os.path.basename(snapshot_path)}"
-                    local_video_url = f"http://localhost:8000/images/{os.path.basename(video_path)}"
-                    print(f"✅ [{cam_id}] 影片與快照已成功寫入本地端！(快照網址: {local_snapshot_url})")
-
-                    if prod is not None:
-                        if (act_conf >= 0.45 or evt_label == "chair_slip") and not is_occluded:
-                            fast_track_payload = {
-                                "device_id": num_id, 
-                                "event_type": evt_label, 
-                                "clip_path": local_video_url,            
-                                "detected_at": datetime.now().isoformat(),  
-                                "snapshot_path": local_snapshot_url, 
-                                "image_filename": local_snapshot_url,
-                                "yolo_score": f_score,
-                                "vlm_summary": "【緊急通報】地端邊緣即時偵測到跌倒意外！影片與快照已存於本地端。"
-                            }
-
-                            prod.send('processed-reports', value=fast_track_payload)
-                            prod.flush()
-                            print(f"🚨 [{cam_id}] 【極速直通】跌倒/滑跤事件已 0 延遲轟入中控台警報系統！(信心度: {act_conf:.2f})")
-                        else:
-                            vlm_queue_payload = {
-                                "device_id": num_id, 
-                                "event_type": evt_label, 
-                                "clip_path": real_s3_video_url,
-                                "detected_at": datetime.now().isoformat(),
-                                "snapshot_path": real_s3_snapshot_url, 
-                                "image_filename": real_s3_snapshot_url,
-                                "yolo_score": f_score,
-                                "vlm_summary": "【AI 疑慮二審】低信心度潛在事件，正背景非同步分析與 MLOps 打標中..."
-                            }
-                            prod.send('nursing-home-alerts', value=vlm_queue_payload)
-                            prod.flush()
-                            print(f"🔍 [{cam_id}] 【疑慮二審】低信心度事件 (信心度: {act_conf:.2f})，已進入背景二審與重訓飛輪佇列！")
-                except Exception as async_err:
-                    print(f"❌ [{cam_id}] 背景處理影片失敗: {async_err}")
-
-            threading.Thread(
-                target=_async_process_video,
-                args=(full_10_sec_frames, final_video_path, final_snapshot_path, camera_id, numeric_id, event_label, final_score, act_confidence, is_occluded_fall, producer),
-                daemon=True
-            ).start()
-            vlm_report = "Async Video Exporting..."
-
-        # =========================================================================
-        # 🎨 畫面渲染與標記：正常為綠色 (0, 255, 0)，報錯/跌倒為紅色 (0, 0, 255)
-        # =========================================================================
-        if results_pose and len(results_pose[0].boxes) > 0:
-            skeleton_connections = [
-                [0,1],[0,2],[1,3],[2,4],[5,6],[5,7],[7,9],[6,8],[8,10],
-                [5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16]
-            ]
-            try:
-                boxes_data = results_pose[0].boxes.xyxy.cpu().numpy().astype(int)
-                conf_data = results_pose[0].boxes.conf.cpu().numpy()
-                if hasattr(results_pose[0].keypoints, 'xy') and results_pose[0].keypoints.xy is not None:
-
-                    kpts_data = results_pose[0].keypoints.xy.cpu().numpy()
-                elif hasattr(results_pose[0].keypoints, 'xyn') and results_pose[0].keypoints.xyn is not None:
-                    kpts_norm = results_pose[0].keypoints.xyn.cpu().numpy()
-                    kpts_data = kpts_norm.copy()
-                    kpts_data[:, :, 0] *= img_w
-                    kpts_data[:, :, 1] *= img_h
-                else:
-                    kpts_data = None
-
-
-                for i in range(len(boxes_data)):
-                    if i < len(conf_data) and conf_data[i] < 0.15:
-                        continue
-                    # 🟢 正常狀態＝綠色 (0, 255, 0)，🔴 跌倒/滑跤＝紅色 (0, 0, 255)
-                    person_color = (0, 0, 255) if (should_trigger_fall or is_chair_slipped) else (0, 255, 0)
-                    bx1, by1, bx2, by2 = boxes_data[i]
-                    
-                    # 1. 畫 Bounding Box
-                    cv2.rectangle(annotated_frame, (bx1, by1), (bx2, by2), person_color, 2)
-                    p_label = f"person {conf_data[i]:.2f}"
-                    cv2.putText(annotated_frame, p_label, (bx1, max(by1 - 8, 20)),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, person_color, 2, cv2.LINE_AA)
-
-                    # 2. 畫 17 點骨架 & 關鍵點
-                    if kpts_data is not None and i < len(kpts_data):
-                        kps = kpts_data[i]
-                        for a, b in skeleton_connections:
-                            if a < len(kps) and b < len(kps):
-                                pt_a, pt_b = (int(kps[a][0]), int(kps[a][1])), (int(kps[b][0]), int(kps[b][1]))
-                                if pt_a[0] > 0 and pt_a[1] > 0 and pt_b[0] > 0 and pt_b[1] > 0:
-                                    cv2.line(annotated_frame, pt_a, pt_b, (255, 229, 0), 2)
-                        for kpx, kpy in kps:
-                            kx, ky = int(kpx), int(kpy)
-                            if kx > 0 and ky > 0:
-                                cv2.circle(annotated_frame, (kx, ky), 5, (0, 221, 255), -1)  # 鮮黃金圓形關節節點
-                                cv2.circle(annotated_frame, (kx, ky), 5, (0, 0, 0), 1)        # 黑色外邊框顯眼點綴
-
+                _detection_queue.put_nowait({
+                    "1": persons_out_list, 
+                    "Room_301_Bed": persons_out_list,
+                    "persons": persons_out_list,
+                    camera_id: persons_out_list
+                })
             except Exception:
                 pass
 
-        if results_env and len(results_env[0].boxes) > 0:
-            for box in results_env[0].boxes:
-                cls_id = int(box.cls[0].item())
-                lbl_name = yolo_env_model.names[cls_id]
-                
-                if lbl_name in ["wheelchair", "bed", "chair", "couch", "bottle", "cup"]:
-                    b_xyxy = box.xyxy.cpu().numpy()[0].astype(int)
-                    b_conf = box.conf[0].item()
+        if any_fall_triggered_this_frame:
+            cv2.rectangle(annotated_frame, (0, 0), (img_w, img_h), (0, 0, 255), 12)
+            cv2.putText(annotated_frame, "FALL DETECTED!", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3, cv2.LINE_AA)
+        else:
+            cv2.putText(annotated_frame, "Normal", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3, cv2.LINE_AA)
+
+        # 背景影片寫入邏輯
+        if is_recording_post and post_frame_count >= MAX_POST_FRAMES:
+            is_recording_post = False
+            full_10_sec_frames = list(pre_video_buffer) + post_video_buffer
+            
+            def _async_process_video(frames, video_path, snapshot_path, cam_id, num_id, prod):
+                print(f"\n🎬 [{cam_id}] 異步背景合成前後 10 秒影片 ({len(frames)} 幀)...")
+                try:
+                    if not frames: return
+                    frame_w, frame_h = 640, 360
+                    temp_raw_path = video_path.replace(".mp4", "_raw.mp4")
+                    # 先用 OpenCV 快速寫入 mp4v
+                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                    out = cv2.VideoWriter(temp_raw_path, fourcc, fps, (frame_w, frame_h))
+                    for f in frames:
+                        out.write(cv2.resize(f, (frame_w, frame_h)))
+                    out.release()
                     
-                    cv2.rectangle(annotated_frame, (b_xyxy[0], b_xyxy[1]), (b_xyxy[2], b_xyxy[3]), (0, 255, 0), 2)
-                    label_text = f"{lbl_name} {b_conf:.2f}"
-                    cv2.putText(annotated_frame, label_text, (b_xyxy[0], max(b_xyxy[1] - 10, 20)),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+                    # 再呼叫 FFmpeg 進行網頁標準化轉碼 (保證 Safari/iOS 絕對能播)
+                    import subprocess
+                    import os
+                    temp_final_path = video_path.replace(".mp4", "_final_temp.mp4")
+                    ffmpeg_cmd = [
+                        "ffmpeg", "-y", "-i", temp_raw_path,
+                        "-c:v", "libx264", "-preset", "fast",
+                        "-profile:v", "baseline", "-level", "3.0",
+                        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+                        temp_final_path
+                    ]
+                    subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    
+                    if os.path.exists(temp_final_path):
+                        os.rename(temp_final_path, video_path)
+                    
+                    if os.path.exists(temp_raw_path):
+                        os.remove(temp_raw_path)
+                        
+                    print(f"✅ [{cam_id}] 10 秒片段影片成功歸檔 (Web 完美相容)！")
+                except Exception as async_err:
+                    print(f"❌ [{cam_id}] 背景處理影片失敗: {async_err}")
 
+            if 'final_video_path' in locals():
+                threading.Thread(
+                    target=_async_process_video,
+                    args=(full_10_sec_frames, final_video_path, final_snapshot_path, camera_id, numeric_id, producer),
+                    daemon=True
+                ).start()
 
-        if draw_border: cv2.rectangle(annotated_frame, (0, 0), (img_w, img_h), color, 12)
-        cv2.putText(annotated_frame, status_text, (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.2, color, 3, cv2.LINE_AA)
-        
-        # ⚡ 實時即時 FPS 計算與右上角動態標註
         now_t = time.time()
         fps_calc_counter += 1
         if now_t - fps_calc_time >= 1.0:
             measured_fps = fps_calc_counter / (now_t - fps_calc_time)
             fps_calc_counter = 0
             fps_calc_time = now_t
-        cv2.putText(annotated_frame, f"FPS: {measured_fps:.1f}", (img_w - 220, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 255, 255), 2, cv2.LINE_AA)
 
+        fps_text = f"FPS: {measured_fps:.2f}"
+        (text_w, text_h), _ = cv2.getTextSize(fps_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
+        box_x1 = img_w - text_w - 20
+        box_y1 = img_h - text_h - 20
+        box_x2 = img_w
+        box_y2 = img_h
+        cv2.rectangle(annotated_frame, (box_x1, box_y1), (box_x2, box_y2), (0, 0, 0), -1)
+        cv2.putText(annotated_frame, fps_text, (box_x1 + 10, box_y2 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
         cv2.putText(annotated_frame, f"VLM Status: {vlm_report}", (40, img_h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
         
         small_frame = cv2.resize(annotated_frame, (320, 240))
-        
-        if is_current_frame_valid: last_valid_annotated_frame = small_frame.copy()
         with frames_lock: output_frames[camera_id] = small_frame.copy()
 
-        # 📤 將畫好骨架與跌倒紅框的最新畫面傳給獨立推流 Thread (保持 MediaMTX 極致流暢 24 FPS)
         if rtsp_writer_proc:
             push_f = cv2.resize(annotated_frame, (out_w, out_h)) if (annotated_frame.shape[1] != out_w or annotated_frame.shape[0] != out_h) else annotated_frame
             with latest_push_lock:
                 latest_push_frame = push_f.copy()
-
 
         t_elapsed = time.time() - t_start
         t_sleep = frame_delay - t_elapsed
@@ -1094,15 +832,14 @@ def camera_worker(camera_id, video_source):
     cap.release()
 
 # =========================================================================
-# 🏢 主執行緒專職 GUI 與排列控制
+# 🏢 主執行緒控制
 # =========================================================================
 if __name__ == "__main__":
-    # 🚀 [單鏡頭高幀率模式：Room_301_Bed]
     camera_channels = {
         "Room_301_Bed": os.environ.get("CAM1_URL", "rtsp://localhost:8554/cam_in"),
     }
 
-    print(f"🎬 全連鎖安養中心多鏡頭多模態智能管線全面啟動（10秒前後預錄極速優化完全體）...")
+    print(f"🎬 全連鎖安養中心多鏡頭智能管線全面啟動...")
     
     threads = []
     for cam_id, stream_src in camera_channels.items():
@@ -1113,7 +850,7 @@ if __name__ == "__main__":
     
     try:
         if headless_mode:
-            print("🖥️  [Headless] 以背景無 GUI 模式啟動，持續進行影像分析與安全防禦...")
+            print("🖥️  [Headless] 以背景無 GUI 模式啟動...")
             while True:
                 time.sleep(1.0)
         else:
@@ -1143,20 +880,3 @@ if __name__ == "__main__":
         if not headless_mode:
             cv2.destroyAllWindows()
         if producer is not None: producer.close()
-
-
-#「它是我們智慧病房第一線的『 AI 24小時無休巡邏警衛與高速通報總部』。」
-#這檔案是裝在病房現場（邊緣端邊界電腦）的超級大腦。它最厲害的地方在於使用 「多線程（Multi-threading）」 技術，只要跑這一個檔案，就能同時拉取多個房間（房號 301, 302, 303）的攝影機畫面同步監控。
-#它的運作邏輯可以拆解成超白話的四個步驟：
-#五感俱全的多模態邊緣大大腦：
-#它同時加載了多個模型。除了用 YOLO11s-Pose 看病人的骨架關節，用 RT-DETR (DEIM-DETR) 認出病房裡的病床、椅子、輪椅，還用時序模型 ActionTransformer 來觀察病人「連續 30 幀（約 1 秒）」的連續動作。同時，它還偷偷外掛了離床、徘徊、床上微動、座椅滑落，甚至連聽覺融合的 AI 大大腦！
-#黃金秒數判定（跌倒與滑落）：
-#它會即時去算病人的身體角度、身高比例。一旦發現病人在一秒內突然躺下、或是高度突然低於平常的 70%（代表跌倒被擋住），甚至是發生輪椅滑落，就會在瞬間被觸發。
-#雲端無痕持久化與背景異步合成（100% 雲端化 + 多執行緒）：
-#這段程式寫得非常高級！只要觸發瞬間，系統立刻開啟前後 10 秒影片寫入緩衝區。為了避免影片寫檔與 S3 上傳導致即時視覺串流卡頓，特別採用 threading.Thread 背景異步執行緒處理合成與傳輸！傳上 S3 後一秒內立刻清理本機暫存，不佔用硬碟且保障隱私。
-#智慧跌倒自動恢復機制（Self-Recovery Reset）：
-#針對長者跌倒後自行站起的情境，系統內建姿態穩定計時器。當長者站起並維持正常站姿達 3 秒（90 幀），系統會自動將跌倒告警狀態解除重置，不僅將事件更新為 Self-Recovered，更能自動恢復定時環境巡檢（Sanity Check）與後續的新跌倒防護！
-#雙軌通報，直轟訊息中心：
-#傳上 S3 後，它會透過 Kafka 將封包直傳回護理站。
-#⚡ 快速道路（高信心度）： 信心度破表或發生滑落，直接走 processed-reports 通道，毫秒級直達護理站。
-#🧠 慢速道路（需要二審）： 姿態不確定（例如被棉被擋住），就先送進 nursing-home-alerts 二審佇列，讓大語言模型（VLM）二次審查，避免護理師被誤報吵醒。

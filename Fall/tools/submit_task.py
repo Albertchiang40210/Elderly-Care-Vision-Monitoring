@@ -16,61 +16,125 @@ def load_env_credentials():
                     k, v = line.strip().split("=", 1)
                     os.environ[k.strip()] = v.strip()
 
-def main():
+# 🎯 🌟 關鍵修正：宣告 project_name 參數，預設為 None
+def main(project_name=None):
     load_env_credentials()
     
     # 🎯 鎖定：禁止所有 ClearML Agent 自帶的 Git/Auto 安裝干擾
     os.environ["CLEARML_DISABLE_GIT_DETECTION"] = "1"
     os.environ["CLEARML_AUTO_DIST"] = "0"
     
-    # 檢查是否已有任務鎖定
+    # 若沒有從 Python 函式直接傳入 project_name，才解析 CLI 參數
+    if not project_name:
+        import argparse
+        parser = argparse.ArgumentParser(description="ClearML 重訓點火器")
+        parser.add_argument("--project", type=str, default="Fall_Detection", choices=["Fall_Detection", "Hazard_Detection"], help="目標重訓專案名稱")
+        # 避免在已被 FastAPI/Uvicorn 載入時因 CLI args 解析衝突而報錯
+        args, _ = parser.parse_known_args()
+        project_name = args.project
+
+    print(f"[*] 🚀 [submit_task] 接收到 ClearML 重訓點火請求，目標專案: '{project_name}'")
+
+    if project_name == "Hazard_Detection":
+        task_name = "RTDETR_Cloud_Incremental_Training_Automated"
+        project_id = 2
+    else:
+        task_name = "YOLOPose_Cloud_Incremental_Training_Automated"
+        project_id = 1
+
+    # 🎯 檢查 Label Studio 中對應 Project 已完成標註 (已按下 Submit) 的 Task 總數
+    ls_url = os.getenv("LS_URL", "http://localhost:8082")
+    labeled_count = 0
+
+    try:
+        import requests
+        s = requests.Session()
+        login_url = f"{ls_url}/user/login/"
+        username = os.getenv("LABEL_STUDIO_USERNAME", "wang4021096@gmail.com")
+        password = os.getenv("LABEL_STUDIO_PASSWORD", "")
+        
+        # 模擬登入獲取 CSRF Token & Session
+        s.get(login_url, timeout=5)
+        s.post(login_url, data={"email": username, "password": password, "csrfmiddlewaretoken": s.cookies.get("csrftoken", "")}, timeout=5)
+        s.headers.update({"X-CSRFToken": s.cookies.get("csrftoken", "")})
+        
+        res = s.get(f"{ls_url}/api/projects/{project_id}/tasks/", params={"page_size": 1000}, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            tasks = data if isinstance(data, list) else data.get("tasks", data.get("results", []))
+            labeled_count = sum(1 for t in tasks if t.get("is_labeled") or t.get("total_annotations", 0) > 0)
+            print(f"📊 [Label Studio API 查核] 專案 '{project_name}' (Project ID: {project_id}) 目前已有 {labeled_count} 張標註完成的照片。")
+        else:
+            # 若專案 ID 查不到，嘗試透過專案列表 API 動態搜尋 ID
+            projects_res = s.get(f"{ls_url}/api/projects/", timeout=5)
+            if projects_res.status_code == 200:
+                p_list = projects_res.json().get("results", [])
+                for p in p_list:
+                    if p.get("title") == project_name:
+                        real_id = p.get("id")
+                        tasks_res = s.get(f"{ls_url}/api/projects/{real_id}/tasks/", params={"page_size": 1000}, timeout=5)
+                        if tasks_res.status_code == 200:
+                            t_data = tasks_res.json()
+                            tasks = t_data if isinstance(t_data, list) else t_data.get("tasks", t_data.get("results", []))
+                            labeled_count = sum(1 for t in tasks if t.get("is_labeled") or t.get("total_annotations", 0) > 0)
+                            print(f"📊 [動態 ID 查核] 專案 '{project_name}' (ID: {real_id}) 目前已有 {labeled_count} 張標註完成的照片。")
+                        break
+    except Exception as api_err:
+        print(f"⚠️ 查詢 Label Studio (Project ID: {project_id}) 已標註數量失敗: {api_err}")
+
+    # 🎯 門檻檢查邏輯
+    if labeled_count < 10:
+        print(f"ℹ️ [MLOps 門檻保護] 專案 '{project_name}' 在 Label Studio 中已 Submit 標註的照片為 {labeled_count} 張 (未達 10 張 Submit 門檻)，暫不觸發 ClearML 重訓。")
+        return
+    else:
+        print(f"🔥 [MLOps 門檻達成] 專案 '{project_name}' 已累積 {labeled_count} 張 Submit 標註照片 (已達 10 張門檻)，正式點火發射 ClearML 重訓 Task！")
+
+    # 檢查是否已有任務鎖定 (執行中或排隊中)
     active_tasks = Task.get_tasks(
-        project_name="Fall_Detection",
-        task_name="RTDETR_Cloud_Incremental_Training_Automated",
+        project_name=project_name,
+        task_name=task_name,
         task_filter={"status": ["in_progress", "queued"]}
     )
     if active_tasks:
-        print(f"🛑 已有任務 {active_tasks[0].id} 執行中，跳過重複點火。")
+        print(f"🛑 專案 '{project_name}' 已有任務 {active_tasks[0].id} 執行中/排隊中，跳過重複點火。")
         return
 
     # 3. 準備執行腳本 (處理融合安裝邏輯)
     orig_pipeline_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "clearml_train_pipeline.py")
-    temp_pipeline_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "clearml_train_pipeline_final.py")
+    temp_pipeline_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".temp_pipeline.py")
+
+    if not os.path.exists(orig_pipeline_path):
+        print(f"❌ 找不到訓練腳本: {orig_pipeline_path}，無法建立 ClearML 任務！")
+        return
 
     with open(orig_pipeline_path, "r", encoding="utf-8") as f:
         code = f.read()
 
-    # 🎯 🌟 [穩定性修正] 強制寫入：若缺少必要套件則自動安裝，並載入本機 AWS 憑證環境變數以防 S3 權限錯誤
+    # 🎯 🌟 [穩定性修正] 強制寫入：若缺少必要套件則自動安裝 (移除 S3 依賴，適應全地端架構)
     auto_install = (
         "import sys, subprocess, os\n"
         "try:\n"
-        "    import ultralytics, clearml, boto3\n"
+        "    import ultralytics, clearml\n"
         "except ImportError:\n"
-        "    subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'ultralytics', 'clearml', 'boto3'])\n\n"
-        "# 載入本機 AWS 憑證環境變數與 ClearML S3 配置覆蓋，以防 S3 寫入權限錯誤\n"
-        "CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))\n"
-        "env_path = os.path.join(CURRENT_DIR, '.env')\n"
-        "if os.path.exists(env_path):\n"
-        "    with open(env_path, 'r') as f:\n"
-        "        for line in f:\n"
-        "            if '=' in line and not line.startswith('#'):\n"
-        "                k, v = line.strip().split('=', 1)\n"
-        "                os.environ[k.strip()] = v.strip()\n"
-        "    os.environ['CLEARML_SDK__AWS__S3__KEY'] = os.environ.get('AWS_ACCESS_KEY_ID', '')\n"
-        "    os.environ['CLEARML_SDK__AWS__S3__SECRET'] = os.environ.get('AWS_SECRET_ACCESS_KEY', '')\n"
-        "    os.environ['CLEARML_SDK__AWS__S3__USE_CREDENTIALS_CHAIN'] = 'true'\n\n"
+        "    subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'ultralytics', 'clearml'])\n\n"
     )
     with open(temp_pipeline_path, "w", encoding="utf-8") as f:
         f.write(auto_install + code)
 
-    # 4. 🎯 初始化 Task，並直接傳入 script 參數與停用 Git 偵測（強迫以純 Standalone 腳本上傳！）
+    # 4. 🎯 初始化 Task，並直接傳入 script 參數與停用 Git 偵測
     task = Task.create(
-        project_name="Fall_Detection",
-        task_name="RTDETR_Cloud_Incremental_Training_Automated",
+        project_name=project_name,
+        task_name=task_name,
         task_type="training",
         script=temp_pipeline_path,
         detect_repository=False
     )
+    
+    # 任務建立後可刪除暫存檔保持資料夾乾淨
+    try:
+        os.remove(temp_pipeline_path)
+    except:
+        pass
 
     # 🎯 🌟 [極度關鍵] 這裡必須明確告訴 Agent 什麼都不用做，直接跑腳本！
     task.set_base_docker(None)
@@ -81,7 +145,7 @@ def main():
 
     # 5. 排隊
     Task.enqueue(task=task, queue_name="default")
-    print(f"✅ [發射成功] 任務 {task.id} 進入隊列。")
+    print(f"✅ [發射成功] 專案 '{project_name}' 任務 {task.id} 順利進入 ClearML 'default' 隊列。")
 
 if __name__ == "__main__":
     main()

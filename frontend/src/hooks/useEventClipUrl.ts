@@ -28,14 +28,28 @@ export function useEventClipUrl(eventId: string | undefined) {
 
     function fetchMedia() {
       getEventMedia(eventId!)
-        .then((media) => {
+        .then(async (media) => {
           if (cancelled) return;
-          if (media.clip_url) {
-            setResult({ id: eventId, clipUrl: media.clip_url, snapshotUrl: media.snapshot_url, error: false });
-          } else {
-            // S3 上傳中，每 2 秒輪詢直到影片就緒
-            setResult((prev) => ({ ...prev, id: eventId, snapshotUrl: media.snapshot_url, error: false }));
+
+          if (!media.clip_url) {
+            // S3 上傳中，每 2 秒輪詢直到影片就緒。
             timer = setTimeout(fetchMedia, 2000);
+            return;
+          }
+
+          // 地端推論在事件建立後才會繼續收集／合成後 5 秒影片；此時後端已
+          // 回傳本機 clip_path，但檔案還沒產生。先確認檔案可讀，避免 video 收到
+          // 一次 404 後就永久顯示「案件片段影像」。
+          try {
+            const response = await fetch(media.clip_url, { method: 'HEAD', cache: 'no-store' });
+            if (!response.ok) throw new Error(`影片尚未就緒 (${response.status})`);
+          } catch {
+            if (!cancelled) timer = setTimeout(fetchMedia, 2000);
+            return;
+          }
+
+          if (!cancelled) {
+            setResult({ id: eventId, clipUrl: media.clip_url, snapshotUrl: media.snapshot_url, error: false });
           }
         })
         .catch(() => {

@@ -90,7 +90,7 @@ def extract_key_frames(video_path, num_frames=5):
 def package_active_learning_sample(img_path, camera_id, rtdetr_box_data, vlm_inferred_label=None, local_backup_path=None, category="false_alarms"):
     """Label Studio 原生預測 JSON 打包與 S3 分類資料夾歸聯"""
     try:
-        dataset_base = os.path.join(PROJECT_ROOT, "active_learning_dataset")
+        dataset_base = os.path.join(PROJECT_ROOT, "active_learning_dataset", category)
         os.makedirs(os.path.join(dataset_base, "images"), exist_ok=True)
         os.makedirs(os.path.join(dataset_base, "predictions"), exist_ok=True)
         
@@ -285,13 +285,18 @@ def vlm_review_node(state: AgentState) -> Dict[str, Any]:
     if state["alert_type"] == "Routine_Environment_Sanity_Check":
         prompt_text = (
             "You must reply ONLY in Traditional Chinese (繁體中文).\n"
-            "You are an AI head nurse conducting a routine security check. Inspect if there are any potential environmental hazards.\n"
-            "Please output a structured environment report using this exact template:\n\n"
-            "【安養中心智慧環境巡檢報告】\n"
+            "You are an AI data curator helping to collect training data for a DETR (Bed and Wheelchair) detection model.\n"
+            "Please carefully inspect the image and report if you can clearly see a 'bed' (病床) or a 'wheelchair' (輪椅).\n"
+            "Please output a structured report using this exact template:\n\n"
+            "【安養中心輪椅與床鋪標註收集報告】\n"
             f"1. 巡檢相機: {state['cam_id']}\n"
-            "2. 巡檢狀態: 正常 / 發現潛在隱患\n"
-            "3. 現場環境具體描述: \n"
-            "4. 預防性護理建議: "
+            "2. 發現目標: 輪椅 / 床 / 皆無\n"
+            "3. 目標位置描述: \n\n"
+            "==============================\n"
+            "【主動探索學習模組】\n"
+            "請在報告最尾端，嚴格且只以一組完整的 JSON 格式（不要包含 markdown 標籤或 ```json 字樣）"
+            "輸出你看到畫面中的目標（例如 'wheelchair' 或 'bed'，如皆無請輸出 'unknown'），格式必須完全對齊如下：\n"
+            '{"item_name": "物品英文名", "description": "物品的中文描述"}'
         )
         vlm_input_source = [state["local_backup_img"] if (state["is_s3"] and state["local_backup_img"]) else state["img_path"]]
     else:
@@ -347,9 +352,16 @@ def vlm_review_node(state: AgentState) -> Dict[str, Any]:
                 extracted_item = json.loads(json_str)
                 vlm_fall_reason_item = extracted_item.get("item_name", "unknown")
                 vlm_item_description = extracted_item.get("description", "無偵測到特定危險雜物")
-                raw_report = raw_report.replace(json_str, "").replace("==============================\n【主動探索學習模組】", "").strip()
         except Exception as je:
             print(f"⚠️ 解析 VLM JSON 失敗: {je}")
+
+        # 無論是否成功解析 JSON，一律將 "=======" 以後的所有文字（包含模型亂回傳的 prompt）通通切斷移除，確保前端乾淨
+        if "==============================" in raw_report:
+            raw_report = raw_report.split("==============================")[0].strip()
+        elif "【主動探索學習模組】" in raw_report:
+            raw_report = raw_report.split("【主動探索學習模組】")[0].strip()
+        elif "請在報告最尾端" in raw_report:
+            raw_report = raw_report.split("請在報告最尾端")[0].strip()
 
         severity = "high" if "high" in raw_report.lower() or "緊急" in raw_report or "跌倒" in raw_report else "low"
         
@@ -370,23 +382,38 @@ def active_learning_node(state: AgentState) -> Dict[str, Any]:
     """主動學習打包節點：僅精準封裝 LangGraph 判定的誤報 (false alarm) 與疑難樣本"""
     is_false_alarm = (state.get("severity") == "low")
     has_target_hazard = (state.get("vlm_fall_reason_item", "unknown") != "unknown")
+    alert_type = state.get("alert_type", "")
 
-    if is_false_alarm or has_target_hazard:
-        target_category = "hazard_objects" if has_target_hazard else "false_alarms"
-        print(f"💾 [Node: Active Learning] 🎯 捕獲 LangGraph 認定之誤報/疑難樣本，正在歸類為 [{target_category}] 並打包上傳 S3...")
-        if state.get("best_box") is not None:
-            active_label = state["vlm_fall_reason_item"] if has_target_hazard else None
-            package_active_learning_sample(
-                state["img_path"], 
-                state["cam_id"], 
-                state["best_box"], 
-                vlm_inferred_label=active_label, 
-                local_backup_path=state["local_backup_img"],
-                category=target_category
-            )
+    do_package = False
+    target_category = "false_alarms"
 
+    if alert_type == "fall":
+        # 跌倒事件：只有誤報才打包給 YOLO 重訓
+        if is_false_alarm:
+            target_category = "false_alarms"
+            print(f"💾 [Node: Active Learning] 🎯 捕獲跌倒誤報 (YOLO 負樣本)，正在打包至 [{target_category}] 供未來重訓...")
+            do_package = True
+        else:
+            print("⏭️ [Node: Active Learning] 該事件為【真實跌倒證據】，無需重訓，跳過主動學習打包。")
     else:
-        print("⏭️ [Node: Active Learning] 該事件為常規告警，跳過主動學習打包。")
+        # 輪椅與病床收集事件：只要有發現目標，就打包給 DETR 重訓
+        if has_target_hazard:
+            target_category = "hazard_objects"
+            print(f"💾 [Node: Active Learning] 🎯 發現目標 ({state.get('vlm_fall_reason_item')})，正在打包至 [{target_category}] 供未來 DETR 專項重訓...")
+            do_package = True
+        else:
+            print("⏭️ [Node: Active Learning] 畫面中未發現輪椅或床鋪，跳過主動學習打包。")
+
+    if do_package and state.get("best_box") is not None:
+        active_label = state["vlm_fall_reason_item"] if has_target_hazard else None
+        package_active_learning_sample(
+            state["img_path"], 
+            state["cam_id"], 
+            state["best_box"], 
+            vlm_inferred_label=active_label, 
+            local_backup_path=state["local_backup_img"],
+            category=target_category
+        )
 
     return {}
 

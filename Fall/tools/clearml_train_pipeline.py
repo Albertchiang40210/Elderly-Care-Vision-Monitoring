@@ -10,10 +10,16 @@ def main():
         task_name="RTDETR_Cloud_Incremental_Training_Automated"
     )
     
-    # 🎯 🌟 [極度關鍵：S3 路徑強行矯正]
-    # 因為 submit_task.py 為了繞過本地憑證檢查，把任務預設路徑變成了 localhost
-    # 現在 Agent 已接管且具備 AWS 憑證，我們要在重訓開始前，強行把結果輸出路徑扳回 S3！
-    task.output_uri = "s3://aipe03-3/clearml-artifacts/models/fall_detection/"
+    # 🎯 🌟 [地端隔離分流] 依據專案類型將 YOLO-Pose 與 RT-DETR 模型分開儲存
+    p_name = task.get_project_name() or "Fall_Detection"
+    model_subfolder = "rt_detr" if "Hazard" in p_name or "DETR" in task.name else "yolo_pose"
+    
+    local_output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "active_learning_dataset", "models", model_subfolder))
+    os.makedirs(local_output_dir, exist_ok=True)
+    task.output_uri = local_output_dir
+
+
+
     
     # =========================================================================
     # 🐋 這裡的代碼只有當「背景 Agent 工人」咬到單之後，才會在背景全自動執行
@@ -25,8 +31,9 @@ def main():
     base_model_path = 'rtdetr-l.pt'
     try:
         from clearml import Model
-        print("🔍 [增量鏈結] 正在檢查雲端是否有上一輪產出的最強大腦...")
-        cloud_bests = Model.query_models(project_name="Fall_Detection", tags=["detr", "best"])
+        current_proj = task.get_project_name()
+        print(f"🔍 [增量鏈結] 正在檢查模型倉庫 '{current_proj}' 是否有上一輪產出的最強大腦...")
+        cloud_bests = Model.query_models(project_name=current_proj, tags=["detr", "best"])
         if cloud_bests:
             # 依據創建時間 (created) 在記憶體中排序，撈出最新產出的那個模型
             cloud_bests = sorted(cloud_bests, key=lambda m: m.created, reverse=True)
@@ -37,11 +44,11 @@ def main():
             downloaded_base = latest_cloud_model.get_local_copy()
             if downloaded_base and os.path.exists(downloaded_base):
                 base_model_path = downloaded_base
-                print("🔄 [繼承成功] 成功載入最新雲端權重，模型將在此基礎上『繼續進修』變更聰明！")
+                print("🔄 [繼承成功] 成功載入最新模型權重，模型將在此基礎上『繼續進修』變更聰明！")
         else:
-            print("ℹ️ 雲端尚未有任何 'detr' 'best' 模型，本次重訓將從原始 'rtdetr-l.pt' 開始冷啟動。")
+            print("ℹ️ 模型倉庫尚未有任何 'detr' 'best' 模型，本次重訓將從原始 'rtdetr-l.pt' 開始冷啟動。")
     except Exception as e:
-        print(f"⚠️ 嘗試拉取雲端最強模型失敗 ({e})，降級使用原始 'rtdetr-l.pt'。")
+        print(f"⚠️ 嘗試拉取最新模型失敗 ({e})，降級使用原始 'rtdetr-l.pt'。")
     
     # 2. 載入 RTDETR 模型權重（可能是原始的，也可能是上一輪傳下來的最強大腦）
     model = RTDETR(base_model_path)
@@ -52,13 +59,18 @@ def main():
     # 3. 開始訓練
     # 🎯 直接在 train 內加入 plots=False，這能 100% 關閉大圖生成與上傳，
     # 同時完美避開了 ImportError 版本相容問題，並大幅節省連線頻寬！
+    import torch
+    train_device = 'cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu')
+    
     model.train(
         data=data_yaml_path, 
-        epochs=1, 
+        epochs=10,             # 【實戰設定】設為 10 輪 (快速高效重訓)
         imgsz=640, 
-        batch=4, 
-        device='cpu',  # 測試用 CPU 跑 1 epoch 即可
-        plots=False    # 阻擋生成/上傳大圖，確保連線不中斷
+        batch=8,               # 【Mac MPS 穩定設定】批次大小 8 避免顯存溢出
+        lr0=0.001,             # 【實戰設定】微調學習率
+        patience=10,           # 【實戰設定】早停機制
+        device=train_device,   # 自動偵測 GPU/MPS 加速
+        plots=False            # 阻擋生成/上傳大圖，確保連線不中斷
     )
 
     # =========================================================================
@@ -72,26 +84,25 @@ def main():
         # 取得最新產出的輸出模型物件（最後一個元素）
         output_model = models['output'][-1]
         
-        # 強制為這個 S3 上的模型貼上 'detr' 與 'best' 標籤，讓自動更新 SDK 可以一秒識別並下載
+        # 強制為這個模型貼上 'detr' 與 'best' 標籤，讓自動更新 SDK 可以一秒識別並下載
         output_model.tags = ['detr', 'best']
-        print("✅ [S3 同步完成] 最新權重已成功上傳至 S3，並標記為 'detr', 'best' 標籤！\n")
+        print("✅ [模型倉庫同步完成] 最新權重已成功上傳，並標記為 'detr', 'best' 標籤！\n")
     else:
         # 💡 Fallback 安全備份機制：如果 ClearML 沒有在第一時間自動捕捉，我們再用手動方式去抓
         print("ℹ️ ClearML 未能自動捕捉模型，啟用 Fallback 機制尋找本地檔案...")
         local_best_path = "runs/detect/train/weights/best.pt"
         
         if os.path.exists(local_best_path):
-            # 🎯 雙重保險：手動建立 OutputModel 時，強制宣告目的地為 S3 儲存桶
+            # 🎯 雙重保險：手動建立 OutputModel
             output_model = OutputModel(
                 task=task, 
-                name="RTDETR_Cloud_Incremental_Training_Automated",
-                destination="s3://aipe03-3/clearml-artifacts/models/fall_detection/"
+                name="RTDETR_Cloud_Incremental_Training_Automated"
             )
             output_model.update_weights(weights_filename=local_best_path, auto_delete_local_copy=False)
             
             # 🎯 語法修正：改為屬性賦值，避免報錯
             output_model.tags = ['detr', 'best']
-            print("✅ [Fallback 同步完成] 已手動將本地模型推送至 S3 並標記 'detr', 'best'！\n")
+            print("✅ [Fallback 同步完成] 已手動將本地模型推送至模型倉庫並標記 'detr', 'best'！\n")
 
         else:
             print("\n⚠️ 警告：找不到任何自動或本地的模型權重，請檢查訓練是否正常結束。\n")

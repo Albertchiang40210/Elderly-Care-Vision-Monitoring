@@ -145,6 +145,14 @@ export function FullScreenAlert({ alerts, now, onAcknowledge, onSuppress, onDism
             </div>
           </div>
 
+          {/* VLM 分析報告顯示區塊 */}
+          {activeAlert.vlm_result && activeAlert.vlm_result.description && (
+            <div className="mt-4 sm:mt-0 sm:ml-6 flex-1 rounded-md bg-[var(--bg-surface-3)] p-3 text-sm text-[var(--text-secondary)] overflow-y-auto max-h-32 border border-[var(--border)]">
+              <p className="font-semibold text-[var(--text-primary)] mb-1">🤖 VLM 語意分析報告：</p>
+              <p className="whitespace-pre-wrap leading-relaxed">{activeAlert.vlm_result.description}</p>
+            </div>
+          )}
+
           {/* 誤報需二次確認：第一次按顯示確認列，避免把真跌倒誤標為誤報 */}
           {confirmStage === 'confirming' ? (
             <div className="flex flex-col gap-2 rounded-md bg-[var(--bg-surface-2)] p-3 sm:w-72">

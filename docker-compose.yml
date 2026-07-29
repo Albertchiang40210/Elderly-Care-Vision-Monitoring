@@ -23,6 +23,7 @@ services:
       - EVENT_API_KEY=${EVENT_API_KEY:-nAK4h8ARAJMjCSoWJ-uErx2KyZKGDF-jcXqmMUpkM_o}
     volumes:
       - ./Fall/active_learning_dataset:/app/Fall/active_learning_dataset
+      - ./backend/static:/app/static
       - ${AWS_CREDENTIALS_PATH:-~/.aws}:/root/.aws:ro
 
   # --- 2. 前端服務 (React + Nginx 整合中控台) ---

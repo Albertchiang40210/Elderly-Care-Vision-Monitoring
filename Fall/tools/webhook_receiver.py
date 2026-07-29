@@ -2,14 +2,15 @@ import os
 import sys
 import traceback
 import asyncio
+from typing import Dict
 from fastapi import FastAPI, Request
 import uvicorn
-from clearml import Task  # 🎯 導入 Task 以便進行環境防禦配置
 
 # 確保路徑正確以載入 submit_task
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
-    # 🎯 🌟 [重要] 這裡的 trigger_clearml_training 呼叫會排隊發射
+    # 🎯 🌟 確保 submit_task.py 的 main 函式支援傳入 project_name 參數
+    # 例如: def main(project_name="Fall_Detection"):
     from submit_task import main as trigger_clearml_training
 except ImportError as e:
     print(f"❌ 無法載入 submit_task 零件: {e}")
@@ -17,78 +18,99 @@ except ImportError as e:
 
 app = FastAPI()
 
-ANNOTATION_COUNT = 0
-TRIGGER_THRESHOLD = 10 # 🚀 展示測試模式：累積滿 10 張照片即自動點火重訓
+# 🚀 改為「字典型態」的計數器，為每個專案獨立計數！
+# 格式: {"Hazard_Detection": 3, "Fall_Detection": 8}
+PROJECT_COUNTERS: Dict[str, int] = {}
+TRIGGER_THRESHOLD = 889  # 🚀 累積滿 889 張照片即自動點火 ClearML 重訓 (精準對齊資料集總數)
 
-async def async_clearml_fire():
+lock = asyncio.Lock()
+
+async def async_clearml_fire(project_name: str):
     """
-    使用 asyncio 異步執行，將 Task 推入 ClearML Queue，
-    並在此處強行注入環境防禦鎖，確保 Agent 不會崩潰。
+    使用 asyncio 異步執行，動態帶入 project_name，
+    將 Task 推入 ClearML 對應專案的 Queue。
     """
     if trigger_clearml_training is None:
-        print("❌ 錯誤：重訓點火零件未正確載入。")
+        print("❌ 錯誤：重訓點火零件 (submit_task.py) 未正確載入。")
         return
         
     try:
-        print("[*] 🚀 [點火控制閥] 正在為彈射任務加固環境配置...")
+        print(f"[*] 🚀 [點火控制閥] 專案 '{project_name}' 正在為彈射任務加固環境配置...")
         
-        # 🎯 🌟 【穩定性防禦核心】
-        # 在執行排隊任務前，確保任何由這裡產生的 Task 都禁止 Agent 進行自動環境建置
-        # 這能徹底閃過你之前遇到的 Python 3.13 / venv 編譯衝突
         def secured_trigger():
             import subprocess
-            # 🎯 [Option B] 啟動重訓前，強制執行一次 SDK 同步，將 Label Studio 上的最新人工修改標註完整拉回地端
+            # 🎯 啟動重訓前，強制執行 SDK 同步，帶入對應專案
             try:
-                print("[*] 正在連線 Label Studio 將最新人工標記成果同步至地端...")
+                print(f"[*] 正在連線 Label Studio 將 '{project_name}' 最新人工標記成果同步至地端...")
                 sdk_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "inference_to_labelstudio_sdk.py")
+                # 可選：若你的 SDK 支援傳帶專案名稱參數，可寫成: [sys.executable, sdk_script, "--project", project_name]
                 subprocess.run([sys.executable, sdk_script], check=True)
-                print("✅ [同步成功] 人工修正之 YOLO 標籤檔案已順利落地！")
+                print(f"✅ [同步成功] '{project_name}' 人工修正之 YOLO 標籤檔案已順利落地！")
             except Exception as sync_err:
                 print(f"⚠️ 同步人工標記失敗 (將以地端既有快取進行重訓): {sync_err}")
 
-            # 建立一個佔位 Task 來設定環境偏好，或者直接呼叫你的主訓練函數
-            # 若你的 submit_task.py 內已有 Task 初始化，請確保該腳本也有這兩行
-            trigger_clearml_training()
+            # 🎯 核心修復：將專案名稱動態傳入 ClearML Task 觸發器
+            try:
+                # 嘗試帶入 project_name
+                trigger_clearml_training(project_name=project_name)
+            except TypeError:
+                # 備用機制：若你的 submit_task.py main() 還沒支援參數，退回無參數呼叫
+                print("⚠️ 提示: submit_task.main() 未接受 project_name 參數，執行預設點火...")
+                trigger_clearml_training()
         
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, secured_trigger)
         
-        print("✅ [排隊成功] 任務已成功推入 ClearML 'default' 佇列！")
+        print(f"✅ [排隊成功] 專案 '{project_name}' 任務已成功推入 ClearML 佇列！")
     except Exception as e:
-        print(f"❌ [點火失敗] 點火程序崩潰！詳細內容:")
+        print(f"❌ [點火失敗] '{project_name}' 點火程序崩潰！詳細內容:")
         traceback.print_exc()
 
-lock = asyncio.Lock()
 
 @app.post("/webhook")
 async def label_studio_webhook(request: Request):
-    global ANNOTATION_COUNT
+    global PROJECT_COUNTERS
     
     try:
         data = await request.json()
         action = data.get("action", "")
+        
+        # 🎯 🌟 核心提取：從 Label Studio 的 Webhook Payload 中精準解析 Project Title
+        # Label Studio Payload 結構範例: {"project": {"id": 1, "title": "Hazard_Detection"}, ...}
+        project_info = data.get("project", {})
+        project_name = project_info.get("title", "Fall_Detection") # 預設 Fall_Detection 避險
+        
     except Exception as e:
         print(f"❌ 解析 Webhook JSON 失敗: {e}")
         return {"status": "bad_request"}
     
-    # 🚀 半自動主動學習閉環：監聽人工審核提交 (annotation_created) 與人工修正 (annotation_updated)
-    if action and action.lower() in ["annotation_created", "annotation_updated"]:
+    # 🚀 半自動主動學習閉環：監聽人工審核提交 (單張/整批 annotation_created, annotations_created, tasks_updated)
+    if action and action.lower() in ["annotation_created", "annotation_updated", "annotations_created", "tasks_updated"]:
         async with lock:
-            ANNOTATION_COUNT += 1
-            print(f"📥 [Webhook 捕獲] 事件: {action} (人工審核/修改標註) | 當前緩衝池: {ANNOTATION_COUNT} / {TRIGGER_THRESHOLD}")
+            # 針對該專案初始化與累加計數
+            current_count = PROJECT_COUNTERS.get(project_name, 0) + 1
+            PROJECT_COUNTERS[project_name] = current_count
             
-            if ANNOTATION_COUNT >= TRIGGER_THRESHOLD:
-                print(f"🔥 [門檻達成] 人工標註門檻達標！立即發送 ClearML 排隊重訓命令！")
-                # 🎯 使用非同步任務發射，避免 FastAPI 卡死
-                asyncio.create_task(async_clearml_fire())
-                ANNOTATION_COUNT = 0 
+            print(f"📥 [Webhook 捕獲] 專案: '{project_name}' | 事件: {action} | 當前緩衝池: {current_count} / {TRIGGER_THRESHOLD}")
+            
+            # 當該專案的數量到達門檻時
+            if current_count >= TRIGGER_THRESHOLD:
+                print(f"🔥 [門檻達成] 專案 '{project_name}' 標註門檻達標 ({TRIGGER_THRESHOLD}張)！立即發送 ClearML 排隊重訓命令！")
+                
+                # 🎯 異步點火，傳入獨立的 project_name
+                asyncio.create_task(async_clearml_fire(project_name))
+                
+                # 歸零該專案的計數器
+                PROJECT_COUNTERS[project_name] = 0
     else:
+        # 忽略其他無關事件（如 task_created, project_updated 等）
         pass
         
     return {"status": "processed"}
 
+
 if __name__ == "__main__":
-    print(f"[*] MLOps 全自動點火閥已就位，監聽 Port 9001...")
+    print(f"[*] MLOps 多專案全自動點火閥已就位，監聽 Port 9001...")
     uvicorn.run(app, host="0.0.0.0", port=9001)
 
 

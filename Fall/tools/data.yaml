@@ -1,9 +1,6 @@
 names:
   0: wheelchair
-  1: slipper
-  2: wire
-  3: obstacle
-  4: walker
+  1: bed
 path: /Users/albert/Documents/專案/AIPE03/Fall/active_learning_dataset
 train: images
 val: images

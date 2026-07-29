@@ -1,43 +1,42 @@
 #!/bin/bash
 
 # =========================================================================
-# 🛑 一鍵安全關閉系統 (Stop All Pipeline Script)
+# 🛑 全局緊急停止腳本 (Stop All Master Script)
+# 職責：一鍵乾淨關閉前線 Edge 與後勤 Cloud 所有的 Docker 與微服務
 # =========================================================================
 
 echo "======================================================="
-echo "🛑 正在一鍵安全關閉全連鎖安養中心 MLOps 系統..."
+echo "🛑 正在強制關閉所有 AI 系統與微服務..."
 echo "======================================================="
 
-# 1. 關閉前線推論與串流進程
-echo "🎬 關閉前線影像推論與 FFmpeg 推流..."
-pkill -f "inference_test.py" >/dev/null 2>&1
-pkill -f "ffmpeg.*rtsp" >/dev/null 2>&1
-pkill -f "mediamtx" >/dev/null 2>&1
+BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# 2. 關閉 MLOps 監控與背景 Worker
-echo "🔄 關閉主動學習監控、Webhook 監聽器與 VLM 大腦..."
-pkill -f "watchdog.py" >/dev/null 2>&1
-pkill -f "webhook_receiver.py" >/dev/null 2>&1
-pkill -f "vlm_worker.py" >/dev/null 2>&1
-pkill -f "model_deployment_agent.py" >/dev/null 2>&1
-pkill -f "clearml-agent" >/dev/null 2>&1
+# 1. 關閉所有 Docker 容器 (Cloud)
+echo "🐳 正在關閉 Docker 容器..."
+(cd "$BASE_DIR" && docker-compose down >/dev/null 2>&1)
+docker stop deepstream_pipeline >/dev/null 2>&1 || true
+docker rm deepstream_pipeline >/dev/null 2>&1 || true
 
-# 3. 關閉後端服務
-echo "⚙️ 關閉 FastAPI 後端與 Kafka Consumer..."
-pkill -f "uvicorn.*main:app" >/dev/null 2>&1
-pkill -f "kafka_consumer.py" >/dev/null 2>&1
+# 2. 關閉所有前線與後端微服務進程 (Edge & Cloud)
+echo "🐍 正在強制終止 Python 與 Node 進程..."
+pkill -f "python.*inference_test.py"
+pkill -f "python.*vlm_worker.py"
+pkill -f "python.*kafka_consumer.py"
+pkill -f "python.*watchdog.py"
+pkill -f "python.*webhook_receiver.py"
+pkill -f "clearml-agent"
+pkill -f "uvicorn.*main:app"
+pkill -f "vite"
+pkill -f "npm run dev"
+
+# 3. 關閉串流與底層通訊
+echo "📡 正在關閉串流與中繼服務..."
+pkill -f "ffmpeg.*rtsp://localhost:8554"
+pkill -f mediamtx
+kill -9 $(lsof -t -i:9001) 2>/dev/null  # Webhook
+kill -9 $(lsof -t -i:8000) 2>/dev/null  # FastAPI
+kill -9 $(lsof -t -i:3000) 2>/dev/null  # React Frontend
 
 echo "======================================================="
-echo "✅ 所有背景影片推流與 AI 微服務已全數安全停止！"
+echo "✅ 所有系統進程皆已乾淨清理完畢！"
 echo "======================================================="
-
-# =========================================================================
-# 💡 [檔案說明與核心職責]
-# 「它是本專案的『一鍵緊急煞車與資源清理腳本 (System Shutdown Master Script)』。」
-# 執行本腳本會精準掃描並釋放所有運作中的進程與連接埠：
-# 1. 關閉前線影像推論 (inference_test.py) 與 FFmpeg / MediaMTX 串流服務
-# 2. 關閉主動學習組件 (watchdog.py, webhook_receiver.py, vlm_worker.py, clearml-agent)
-# 3. 關閉後端微服務 (FastAPI/Uvicorn, kafka_consumer.py)
-# 確保無殘留背景進程占用 GPU / CPU 資源或佔用 8000/8089/9001/8554 等 Port 號。
-# =========================================================================
-

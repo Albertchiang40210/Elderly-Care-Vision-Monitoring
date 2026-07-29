@@ -55,9 +55,12 @@ app.add_middleware(
 from fastapi.staticfiles import StaticFiles
 
 # 挂載本地快照與影片資料夾，供前端直接讀取最新即時擷取檔案
-images_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Fall", "active_learning_dataset", "images"))
+images_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "static", "images"))
+fall_images_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Fall", "active_learning_dataset", "images"))
 os.makedirs(images_dir, exist_ok=True)
+os.makedirs(fall_images_dir, exist_ok=True)
 app.mount("/images", StaticFiles(directory=images_dir), name="images")
+app.mount("/fall_images", StaticFiles(directory=fall_images_dir), name="fall_images")
 
 try:
     from backend.events.router import router as event_router

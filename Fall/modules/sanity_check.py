@@ -24,15 +24,20 @@ class RoutineSanityChecker:
             current_file_path = os.path.abspath(__file__)
             project_root = os.path.dirname(os.path.dirname(current_file_path))
             vlm_save_dir = os.path.join(project_root, "active_learning_dataset", "images")
-            os.makedirs(vlm_save_dir, exist_ok=True)  # 防線建立：資料夾不存在就自動建立
+            routine_save_dir = os.path.join(project_root, "active_learning_dataset", "routine")
+            os.makedirs(vlm_save_dir, exist_ok=True)
+            os.makedirs(routine_save_dir, exist_ok=True)
 
             # 🧠 核心修正 2：組裝帶有精確時間戳的不重複檔名與絕對儲存路徑
             current_time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
             snapshot_name = f"snapshot_{self.camera_id}_routine_{current_time_str}.jpg"
             full_snapshot_path = os.path.join(vlm_save_dir, snapshot_name)
+            routine_snapshot_path = os.path.join(routine_save_dir, snapshot_name)
             
-            # 🧠 核心修正 3：精準寫入隔離目標資料夾（最外層從此乾乾淨淨）
+            # 🧠 核心修正 3：雙向保存至隔離資料夾與 routine 專屬資料夾
             cv2.imwrite(full_snapshot_path, frame)
+            cv2.imwrite(routine_snapshot_path, frame)
+
             
             try:
                 # 🧠 解析出數字 ID（例如 Room_301_Bed -> 301）

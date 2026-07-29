@@ -16,7 +16,13 @@ logger = logging.getLogger("kafka_consumer")
 
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
 EVENTS_URL = os.environ.get("EVENTS_URL", "http://localhost:8000/events")
-EVENT_API_KEY = os.environ.get("EVENT_API_KEY", "")
+
+# ⚡ [關鍵修復] 補上預設的正確 EVENT_API_KEY，避免因為 Key 為空而導致告警被判定為毒訊息 (poison) 拋棄
+EVENT_API_KEY = os.environ.get(
+    "EVENT_API_KEY", 
+    "nAK4h8ARAJMjCSoWJ-uErx2KyZKGDF-jcXqmMUpkM_o"
+)
+
 TOPIC = "processed-reports"
 GROUP_ID = "fulilian-backend"
 RETRY_SLEEP_SECONDS = 5
@@ -24,7 +30,7 @@ RETRY_SLEEP_SECONDS = 5
 
 def classify_response(status_code: int) -> str:
     # 201 建立成功；400/422 是毒訊息（重試無用，跳過）；其餘（5xx/未知）當一時失敗重試
-    if status_code == 201:
+    if status_code in (200, 201):  # 👈 相容 200/201 成功狀態碼
         return "ok"
     if status_code in (400, 422):
         return "poison"
@@ -38,7 +44,6 @@ def handle_raw_message(raw, post_fn) -> str:
     except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
         return "poison"
     # 2. 送出：送出階段任何例外＝傳輸失敗（一時的），回 retry
-    #    注意：壞資料是靠「回應碼」判斷（下一步 classify_response），不是靠例外
     try:
         response = post_fn(data)
     except Exception as err:
@@ -61,7 +66,6 @@ def post_event(data: dict):
 
 
 def build_consumer():
-    # lazy import：讓 Task 1/2 的純邏輯測試不必先裝 kafka 套件
     from kafka import KafkaConsumer
 
     return KafkaConsumer(
@@ -70,8 +74,6 @@ def build_consumer():
         group_id=GROUP_ID,
         enable_auto_commit=False,   # 處理成功才手動 commit（at-least-once）
         auto_offset_reset="latest",  # 首次啟動只收「從現在開始」的新警報
-        # 不設 value_deserializer：拿原始 bytes 交給 handle_raw_message 自己解析，
-        # 壞 JSON 才能在函式內被接住判成 poison，而不是在迭代時噴例外
     )
 
 
@@ -88,7 +90,6 @@ def run():
                     time.sleep(RETRY_SLEEP_SECONDS)
                     continue
                 if decision == "poison":
-                    # 毒訊息：本次僅記 log（未來可在此改丟 dead-letter queue）
                     logger.error("毒訊息，跳過：%r", message.value)
                 consumer.commit()  # ok 或 poison 都前進
                 break
@@ -101,13 +102,3 @@ def run():
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     run()
-
-# =========================================================================
-# 💡 [檔案說明與核心職責]
-# 「它是 Kafka 告警佇列消費者與 DB 自動儲存器 (Kafka DB Consumer)。」
-# 本腳本於背景持續輪詢 Kafka 的 processed-reports 通道：
-# 1. 自動讀取邊緣端與 VLM 護理長大腦處理完畢的告警與二審報告。
-# 2. 自動進行 JSON 解碼與資料結構格式化對齊。
-# 3. 透過 SQLAlchemy 寫入 PostgreSQL 資料庫（Event / Report 紀錄），供前端即時看板展示。
-# =========================================================================
-
