@@ -14,12 +14,10 @@ export const EVENT_TYPE_LABEL: Record<EventType, string> = {
 };
 
 // 潛在危險（物件偵測）可辨識的危險物品類型；跌倒事件此欄為 null。
-export type HazardObject = '輪椅' | '拖鞋' | '電線' | '助行器' | '刀具' | '熱源' | '藥品' | '玻璃碎片' | '積水' | '其他';
+export type HazardObject = '輪椅' | '病床' | '刀具' | '熱源' | '藥品' | '玻璃碎片' | '積水' | '其他';
 export const HAZARD_OBJECTS: HazardObject[] = [
   '輪椅',
-  '拖鞋',
-  '電線',
-  '助行器',
+  '病床',
   '刀具',
   '熱源',
   '藥品',
@@ -28,14 +26,10 @@ export const HAZARD_OBJECTS: HazardObject[] = [
   '其他',
 ];
 
-// DETR 英文 class names (data.yaml: 0:wheelchair, 1:slipper, 2:wire, 3:obstacle, 4:walker) 映射表
-// 依使用者需求：obstacle 拿掉獨立名稱，直接映射至「其他」
+// DETR 英文 class names (data.yaml: 0:wheelchair, 1:bed) 映射表
 export const DETR_CLASS_MAP: Record<string, HazardObject> = {
   wheelchair: '輪椅',
-  slipper: '拖鞋',
-  wire: '電線',
-  walker: '助行器',
-  obstacle: '其他',
+  bed: '病床',
 };
 
 

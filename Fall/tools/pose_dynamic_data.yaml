@@ -1,0 +1,7 @@
+path: /Users/albert/Documents/專案/AIPE03/Fall/active_learning_pose_split_dataset
+train: train/images
+val: val/images
+
+nc: 1
+names: ['person']
+kpt_shape: [17, 3]
