@@ -46,6 +46,7 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const personsRef = useRef<Person[]>([]);   // 最新一幀偵測結果
   const sseRef = useRef<EventSource | null>(null);
+  const aiFpsRef = useRef<number>(0);
 
   const [status, setStatus] = useState('正在初始化…');
   const [fps, setFps] = useState('--');
@@ -62,8 +63,11 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props)
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
-        const parsedPersons = data['1'] || data['Room_301_Bed'] || data.persons || (Object.values(data)[0] as Person[]) || [];
+        const parsedPersons = data['1'] || data['Room_301_Bed'] || data.persons || (Object.values(data).find(v => Array.isArray(v))) || [];
         personsRef.current = Array.isArray(parsedPersons) ? parsedPersons : [];
+        if (data.backend_fps !== undefined) {
+          aiFpsRef.current = data.backend_fps;
+        }
         lastUpdateRef.current = Date.now();
       } catch (err) {
         console.error("[CameraStream SSE Parse Error]", err);
@@ -181,6 +185,29 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props)
           });
         }
       });
+
+      // 繪製 AI Inference FPS 於右下角 (仿造老師截圖風格)
+      const aiFps = aiFpsRef.current;
+      if (aiFps > 0) {
+        const fpsText = `FPS: ${aiFps.toFixed(2)}`;
+        ctx.font = 'bold 15px Arial';
+        const textMetrics = ctx.measureText(fpsText);
+        const textWidth = textMetrics.width;
+        const padX = 8;
+        const padY = 6;
+        
+        const boxW = textWidth + padX * 2;
+        const boxH = 15 + padY * 2;
+        const boxX = W - boxW - 10;
+        const boxY = H - boxH - 10;
+        
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(boxX, boxY, boxW, boxH);
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(fpsText, boxX + padX, boxY + boxH / 2);
+      }
 
       // FPS 計數
       frameCount++;
