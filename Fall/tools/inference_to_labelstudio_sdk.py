@@ -45,8 +45,9 @@ DEFAULT_MODEL_PATH = str(PROJECT_ROOT / "rtdetr-l.pt")
 
 MODEL_PATH = ACTIVE_MODEL_PATH if os.path.exists(ACTIVE_MODEL_PATH) else DEFAULT_MODEL_PATH
 
-IMAGES_DIR = PROJECT_ROOT / "active_learning_dataset" / "images"
-LABELS_DIR = PROJECT_ROOT / "active_learning_dataset" / "labels"
+# 🎯 專屬 Label Studio 用的 DETR 資料大本營
+IMAGES_DIR = PROJECT_ROOT / "label_studio_data" / "detr_hazard_objects" / "images"
+LABELS_DIR = PROJECT_ROOT / "label_studio_data" / "detr_hazard_objects" / "labels"
 LABELS_DIR.mkdir(parents=True, exist_ok=True)
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 

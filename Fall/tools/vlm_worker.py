@@ -90,7 +90,15 @@ def extract_key_frames(video_path, num_frames=5):
 def package_active_learning_sample(img_path, camera_id, rtdetr_box_data, vlm_inferred_label=None, local_backup_path=None, category="false_alarms"):
     """Label Studio 原生預測 JSON 打包與 S3 分類資料夾歸聯"""
     try:
-        dataset_base = os.path.join(PROJECT_ROOT, "active_learning_dataset", category)
+        if category == "false_alarms":
+            # 這是 YOLO-Pose 的跌倒誤報
+            dataset_base = os.path.join(PROJECT_ROOT, "label_studio_data", "pose_false_alarms")
+        elif category == "hazard_objects":
+            # 這是 DETR 的輪椅與床鋪新資料
+            dataset_base = os.path.join(PROJECT_ROOT, "label_studio_data", "detr_hazard_objects")
+        else:
+            dataset_base = os.path.join(PROJECT_ROOT, "label_studio_data", category)
+            
         os.makedirs(os.path.join(dataset_base, "images"), exist_ok=True)
         os.makedirs(os.path.join(dataset_base, "predictions"), exist_ok=True)
         

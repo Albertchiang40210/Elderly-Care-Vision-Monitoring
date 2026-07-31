@@ -21,7 +21,7 @@ app = FastAPI()
 # 🚀 改為「字典型態」的計數器，為每個專案獨立計數！
 # 格式: {"Hazard_Detection": 3, "Fall_Detection": 8}
 PROJECT_COUNTERS: Dict[str, int] = {}
-TRIGGER_THRESHOLD = 889  # 🚀 累積滿 889 張照片即自動點火 ClearML 重訓 (精準對齊資料集總數)
+TRIGGER_THRESHOLD = 100  # 🚀 累積滿 100 張照片即自動點火 ClearML 重訓
 
 lock = asyncio.Lock()
 

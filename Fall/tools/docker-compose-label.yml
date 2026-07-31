@@ -9,12 +9,12 @@ services:
       - "8082:8080"
     volumes:
       - lsdata:/label-studio/data
-      # 🎯 將 Mac 本地的圖片與標記資料夾掛載至容器內
-      - ../active_learning_dataset:/label-studio/data/active_learning_dataset
+      # 🎯 將 Mac 本地給 Label Studio 的專屬資料夾掛載至容器內
+      - ../label_studio_data:/label-studio/data/label_studio_data
     environment:
-      # 🎯 啟用本地檔案服務，並將 Document Root 對齊掛載路徑
+      # 🎯 啟用本地檔案服務，並將 Document Root 對齊專屬掛載路徑
       - LOCAL_FILES_SERVING_ENABLED=true
-      - LOCAL_FILES_DOCUMENT_ROOT=/label-studio/data/active_learning_dataset
+      - LOCAL_FILES_DOCUMENT_ROOT=/label-studio/data/label_studio_data
 
 
     networks:
