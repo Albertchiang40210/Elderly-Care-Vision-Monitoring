@@ -12,6 +12,8 @@
 
 ## 🏗️ 核心檔案與架構全景導覽 (Core Components)
 
+<img width="978" height="769" alt="899e87f4-889c-4f60-b69b-0360afbbc657" src="https://github.com/user-attachments/assets/85f912c4-06dc-44b1-84e6-5f527e68ffa2" />
+
 本專案由關鍵模組、腳本、Docker 容器與組態配置交織而成，以下為各檔案在系統中的「白話文使命與核心職責」：
 
 ### 📁 第一階段：環境防禦與資料基石 (Env & Data Basics)
