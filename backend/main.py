@@ -14,6 +14,10 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime, timezone
+from fastapi.responses import JSONResponse
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 from database import Base, engine, get_db
@@ -44,19 +48,30 @@ if os.getenv("SKIP_DB_INIT") != "1":
 # 所有路由都掛在它身上（@app.post、@app.get...）
 app = FastAPI()
 
-# 告訴瀏覽器：「哪些網站可以存取我的 API。」
+# 告訴瀏覽器：「哪些網站可以存取我的 API。」(生產環境應該設定白名單)
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# 全域例外處理 (Global Exception Handler)
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    logger.error(f"未預期的伺服器錯誤: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"message": "Internal Server Error", "details": str(exc) if os.getenv("DEBUG", "0") == "1" else "請聯絡系統管理員"}
+    )
+
 from fastapi.staticfiles import StaticFiles
 
 # 挂載本地快照與影片資料夾，供前端直接讀取最新即時擷取檔案
-images_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "static", "images"))
-fall_images_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Fall", "active_learning_dataset", "images"))
+# 生產環境建議從環境變數讀取路徑，避免 Docker 內絕對路徑失效
+images_dir = os.getenv("STATIC_IMAGES_DIR", os.path.abspath(os.path.join(os.path.dirname(__file__), "static", "images")))
+fall_images_dir = os.getenv("FALL_IMAGES_DIR", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Fall", "active_learning_dataset", "images")))
 os.makedirs(images_dir, exist_ok=True)
 os.makedirs(fall_images_dir, exist_ok=True)
 app.mount("/images", StaticFiles(directory=images_dir), name="images")

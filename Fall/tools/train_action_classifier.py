@@ -14,6 +14,8 @@ BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 sys.path.append(str(PROJECT_ROOT))
 
+from mlops_config.settings import settings
+
 # 嘗試載入 ClearML (如果您有設定好環境變數)
 try:
     from clearml import Task
@@ -32,12 +34,12 @@ CHALLENGER_MODEL_PATH = MODEL_SAVE_DIR / "transformer_action_model_challenger.pt
 LABEL_MAP_PATH = MODEL_SAVE_DIR / "label_map.json"
 METRICS_PATH = MODEL_SAVE_DIR / "metrics.json"
 
-# 超參數設定
-BATCH_SIZE = 16
-EPOCHS = 30
-LEARNING_RATE = 1e-3
-SEQ_LENGTH = 30
-INPUT_DIM = 34  # 17 keypoints * 2 (x,y)
+# 超參數設定由 settings 集中管理
+BATCH_SIZE = settings.BATCH_SIZE
+EPOCHS = settings.EPOCHS
+LEARNING_RATE = settings.LEARNING_RATE
+SEQ_LENGTH = settings.SEQ_LENGTH
+INPUT_DIM = settings.INPUT_DIM
 
 def main():
     if not DATASET_PATH.exists():
@@ -81,7 +83,13 @@ def main():
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
     # 初始化 Action Transformer
-    model = ActionTransformer(num_classes=len(unique_labels), input_dim=INPUT_DIM, d_model=64, nhead=4, num_layers=2).to(device)
+    model = ActionTransformer(
+        num_classes=len(unique_labels),
+        input_dim=INPUT_DIM,
+        d_model=settings.D_MODEL,
+        nhead=settings.NHEAD,
+        num_layers=settings.NUM_LAYERS
+    ).to(device)
     
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
@@ -91,7 +99,14 @@ def main():
     if clearml_available:
         try:
             task = Task.init(project_name="Fall_Detection_Action", task_name="Train_Transformer_Classifier")
-            task.connect({"epochs": EPOCHS, "batch_size": BATCH_SIZE, "lr": LEARNING_RATE, "d_model": 64})
+            task.connect({
+                "epochs": EPOCHS, 
+                "batch_size": BATCH_SIZE, 
+                "lr": LEARNING_RATE, 
+                "d_model": settings.D_MODEL,
+                "nhead": settings.NHEAD,
+                "num_layers": settings.NUM_LAYERS
+            })
         except Exception as e:
             print(f"⚠️ ClearML 連線失敗，略過紀錄: {e}")
 

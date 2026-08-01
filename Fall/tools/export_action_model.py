@@ -8,16 +8,16 @@ BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 sys.path.append(str(PROJECT_ROOT))
 
+from mlops_config.settings import settings
 from modules.action_transformer import ActionTransformer
 
 MODEL_DIR = PROJECT_ROOT / "models" / "action_classifier"
 PT_MODEL_PATH = MODEL_DIR / "transformer_action_model.pt"
-ONNX_MODEL_PATH = MODEL_DIR / "transformer_action_model.onnx"
 LABEL_MAP_PATH = MODEL_DIR / "label_map.json"
 
 # 推理參數
-SEQ_LENGTH = 30
-INPUT_DIM = 34
+SEQ_LENGTH = settings.SEQ_LENGTH
+INPUT_DIM = settings.INPUT_DIM
 
 def main():
     if not PT_MODEL_PATH.exists():
@@ -34,7 +34,13 @@ def main():
     
     print("🔄 正在實例化 Action Transformer 模型...")
     # 建立模型結構
-    model = ActionTransformer(num_classes=num_classes, input_dim=INPUT_DIM, d_model=64, nhead=4, num_layers=2)
+    model = ActionTransformer(
+        num_classes=num_classes, 
+        input_dim=INPUT_DIM, 
+        d_model=settings.D_MODEL, 
+        nhead=settings.NHEAD, 
+        num_layers=settings.NUM_LAYERS
+    )
     
     # 載入權重
     print(f"📥 載入權重: {PT_MODEL_PATH}")
@@ -46,13 +52,21 @@ def main():
     # 我們設定 dynamic_axes 讓 Batch 大小在 Triton 部署時可以動態改變
     dummy_input = torch.randn(1, SEQ_LENGTH, INPUT_DIM, requires_grad=False)
     
-    print("🚀 開始匯出 ONNX 格式...")
+    # 尋找目前的最高版本，並建立新的版本資料夾 (支援 Triton 退版機制)
+    current_versions = [int(d) for d in os.listdir(MODEL_DIR) if (MODEL_DIR / d).is_dir() and d.isdigit()]
+    next_version = max(current_versions) + 1 if current_versions else 1
+    
+    VERSION_DIR = MODEL_DIR / str(next_version)
+    VERSION_DIR.mkdir(parents=True, exist_ok=True)
+    ONNX_MODEL_PATH = VERSION_DIR / "model.onnx"
+    
+    print(f"🚀 開始匯出 ONNX 格式 (Version {next_version})...")
     torch.onnx.export(
         model,
         dummy_input,
         str(ONNX_MODEL_PATH),
         export_params=True,
-        opset_version=14, # 確保相容較新的 ONNX 算子
+        opset_version=settings.ONNX_OPSET_VERSION, # 確保相容較新的 ONNX 算子
         do_constant_folding=True,
         input_names=['input_sequence'],
         output_names=['action_logits'],
@@ -68,7 +82,7 @@ def main():
     config_pbtxt = f"""
 name: "action_transformer"
 platform: "onnxruntime_onnx"
-max_batch_size: 16
+max_batch_size: {settings.TRITON_MAX_BATCH_SIZE}
 
 input [
   {{
