@@ -91,7 +91,26 @@ echo "🧠 [4/4] 啟動 VLM 警報攔截器與核心 AI 辨識引擎..."
 pkill -f "python.*vlm_worker.py" >/dev/null 2>&1
 (cd "$BASE_DIR/Fall/tools" && nohup "$BASE_DIR/Fall/.venv/bin/python" vlm_worker.py > "$BASE_DIR/vlm_worker.log" 2>&1 &)
 
-(cd "$BASE_DIR/Fall/tools" && "$BASE_DIR/Fall/.venv/bin/python" inference_test.py --headless)
+# 硬體自動偵測：若有 N 卡則啟用 DeepStream Docker，否則使用 Python (GStreamer+OpenCV)
+if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+    echo "🚀 [硬體偵測] 發現 NVIDIA GPU，自動切換至 DeepStream 產線級引擎！"
+    
+    # 清理舊的容器
+    docker stop deepstream_pipeline >/dev/null 2>&1 || true
+    docker rm deepstream_pipeline >/dev/null 2>&1 || true
+    
+    # 啟動 DeepStream 容器 (請根據您實際的 image 名稱與需求微調以下參數)
+    docker run -d --name deepstream_pipeline --gpus all \
+        -v "$BASE_DIR/deepstream_configs:/app/deepstream_configs" \
+        -w /app \
+        nvcr.io/nvidia/deepstream:7.0-triton-multiarch \
+        deepstream-app -c deepstream_configs/deepstream_app_config.txt
+        
+    echo "✅ DeepStream 已在背景啟動 (容器: deepstream_pipeline)"
+else
+    echo "💻 [硬體偵測] 未發現 NVIDIA GPU，自動降級啟用 Python (GStreamer+OpenCV) 引擎！"
+    (cd "$BASE_DIR/Fall/tools" && "$BASE_DIR/Fall/.venv/bin/python" inference_test.py --headless)
+fi
 
 echo "======================================================="
 echo "✅ [Edge 前線] 系統啟動完畢，AI 已進入 24H 監視狀態！"
