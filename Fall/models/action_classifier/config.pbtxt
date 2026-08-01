@@ -1,0 +1,19 @@
+name: "action_transformer"
+platform: "onnxruntime_onnx"
+max_batch_size: 16
+
+input [
+  {
+    name: "input_sequence"
+    data_type: TYPE_FP32
+    dims: [ 30, 34 ]
+  }
+]
+
+output [
+  {
+    name: "action_logits"
+    data_type: TYPE_FP32
+    dims: [ 3 ]
+  }
+]
