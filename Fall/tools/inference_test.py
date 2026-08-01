@@ -837,7 +837,10 @@ def camera_worker(camera_id, video_source):
 # =========================================================================
 if __name__ == "__main__":
     camera_channels = {
-        "Room_301_Bed": os.environ.get("CAM1_URL", "rtsp://localhost:8554/cam_in"),
+        "cam_0": os.environ.get("CAM0_URL", "rtsp://localhost:8554/cam_0"),
+        "cam_1": os.environ.get("CAM1_URL", "rtsp://localhost:8554/cam_1"),
+        "cam_2": os.environ.get("CAM2_URL", "rtsp://localhost:8554/cam_2"),
+        "cam_3": os.environ.get("CAM3_URL", "rtsp://localhost:8554/cam_3"),
     }
 
     print(f"🎬 全連鎖安養中心多鏡頭智能管線全面啟動...")

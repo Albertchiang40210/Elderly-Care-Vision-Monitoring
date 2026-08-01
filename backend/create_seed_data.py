@@ -55,13 +55,15 @@ for loc_name in locations_to_add:
         db.commit()
         print(f"已建立區域：{loc_name}")
 
-# 3. 建立裝置 (Device) - 🎯 補上 Room_301_Bed 邊緣鏡頭裝置
+# 3. 建立裝置 (Device) - 🎯 補上四宮格 Demo 的 4 支鏡頭
 loc_ids = {l.location_name: l.location_id for l in db.query(Location).all()}
 
 devices_to_add = [
-    {"device_name": "交誼廳-01", "location_name": "交誼廳"},
-    {"device_name": "走廊-01", "location_name": "走廊"},
-    {"device_name": "Room_301_Bed", "location_name": "301號病房"} # 👈 解決 401 的關鍵權限紀錄
+    {"device_name": "cam_0", "location_name": "301號病房"},
+    {"device_name": "cam_1", "location_name": "301號病房"},
+    {"device_name": "cam_2", "location_name": "走廊"},
+    {"device_name": "cam_3", "location_name": "交誼廳"},
+    {"device_name": "Room_301_Bed", "location_name": "301號病房"} # 保留舊的相容性
 ]
 
 for dev in devices_to_add:

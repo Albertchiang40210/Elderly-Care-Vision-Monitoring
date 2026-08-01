@@ -822,6 +822,14 @@ pathDefaults:
 # for example "~^(test1|test2)$" will match both "test1" and "test2",
 # for example "~^prefix" will match all paths that start with "prefix".
 paths:
+  cam_0:
+    source: publisher
+  cam_1:
+    source: publisher
+  cam_2:
+    source: publisher
+  cam_3:
+    source: publisher
   cam_in:
     source: publisher
   cam_out:

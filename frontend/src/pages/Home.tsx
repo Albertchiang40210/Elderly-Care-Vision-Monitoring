@@ -141,8 +141,13 @@ export function Home() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* 左 2/3 */}
         <div className="flex flex-col gap-6 lg:col-span-2">
-          {/* 即時影像：WebRTC WHEP 直連 cam_out（含 YOLO 偵測框與骨架） */}
-          <CameraStream cameraLabel={selectedCamera ? `${selectedCamera.zone}（${selectedCamera.name}）` : 'AI 即時監控'} />
+          {/* 四宮格即時影像：WebRTC WHEP 多路直連 (Stage Demo 版) */}
+          <div className="grid grid-cols-2 gap-4">
+            <CameraStream streamId="cam_0" cameraLabel="301 病房 - 床位 A" />
+            <CameraStream streamId="cam_1" cameraLabel="301 病房 - 床位 B" />
+            <CameraStream streamId="cam_2" cameraLabel="走廊監視器 - 北側" />
+            <CameraStream streamId="cam_3" cameraLabel="交誼廳 - 主視角" />
+          </div>
 
           {/* 手機：切換選單緊接鏡頭下方（桌機隱藏，改由右欄頂端顯示） */}
           <div className="lg:hidden">

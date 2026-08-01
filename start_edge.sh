@@ -77,11 +77,25 @@ elif [ "$USE_WEBCAM" != "0" ]; then
     nohup ffmpeg -nostdin -f avfoundation -pixel_format uyvy422 -framerate 60 -i "$CAM_INDEX" -vf "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
     sleep 3
 else
-    TEST_VIDEO="$BASE_DIR/Fall/test_demo/test1.mp4"
-    if [ -f "$TEST_VIDEO" ]; then
-        echo "🎥 [展示模式] 未設定攝影機，預設播放展示影片 test1.mp4 -> rtsp://localhost:8554/cam_in"
+    # Stage Demo 版：強制播放 4 個測試影片供四宮格使用
+    TEST_VIDEO_1="$BASE_DIR/Fall/test_demo/test1.mp4"
+    TEST_VIDEO_2="$BASE_DIR/Fall/test_demo/test2.mp4"
+    TEST_VIDEO_3="$BASE_DIR/Fall/test_demo/test3.mp4"
+    TEST_VIDEO_4="$BASE_DIR/Fall/test_demo/test4.mp4"
+    
+    # 暫時以 test1.mp4 作為預設影片，避免檔案不存在導致 ffmpeg 崩潰
+    [ ! -f "$TEST_VIDEO_1" ] && TEST_VIDEO_1="$BASE_DIR/Fall/test_demo/test1.mp4"
+    [ ! -f "$TEST_VIDEO_2" ] && TEST_VIDEO_2="$BASE_DIR/Fall/test_demo/test1.mp4"
+    [ ! -f "$TEST_VIDEO_3" ] && TEST_VIDEO_3="$BASE_DIR/Fall/test_demo/test1.mp4"
+    [ ! -f "$TEST_VIDEO_4" ] && TEST_VIDEO_4="$BASE_DIR/Fall/test_demo/test1.mp4"
+
+    if [ -f "$TEST_VIDEO_1" ]; then
+        echo "🎥 [展示模式] 未設定攝影機，啟動四宮格多路推流 (Demo Mode)"
         pkill -f "ffmpeg.*rtsp://localhost:8554" >/dev/null 2>&1
-        nohup ffmpeg -nostdin -re -stream_loop -1 -i "$TEST_VIDEO" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_in > /dev/null 2>&1 &
+        nohup ffmpeg -nostdin -re -stream_loop -1 -i "$TEST_VIDEO_1" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_0 > /dev/null 2>&1 &
+        nohup ffmpeg -nostdin -re -stream_loop -1 -i "$TEST_VIDEO_2" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_1 > /dev/null 2>&1 &
+        nohup ffmpeg -nostdin -re -stream_loop -1 -i "$TEST_VIDEO_3" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_2 > /dev/null 2>&1 &
+        nohup ffmpeg -nostdin -re -stream_loop -1 -i "$TEST_VIDEO_4" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_3 > /dev/null 2>&1 &
         sleep 2
     fi
 fi

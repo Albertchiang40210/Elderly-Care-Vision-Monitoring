@@ -7,10 +7,6 @@
  */
 import { useEffect, useRef, useState } from 'react';
 
-const WHEP_URL = 'http://localhost:8889/cam_in/whep';
-
-
-
 // 直接連線至後端 Port 8000 的即時骨架 SSE 推播通道
 const DETECT_SSE = 'http://localhost:8000/events/live-detection/stream';
 
@@ -36,9 +32,10 @@ interface Person {
 
 interface Props {
   cameraLabel?: string;
+  streamId?: string;
 }
 
-export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props) {
+export default function CameraStream({ cameraLabel = 'AI 即時監控', streamId = 'cam_in' }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -63,7 +60,7 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props)
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
-        const parsedPersons = data['1'] || data['Room_301_Bed'] || data.persons || (Object.values(data).find(v => Array.isArray(v))) || [];
+        const parsedPersons = data[streamId] || data['1'] || data['Room_301_Bed'] || data.persons || (Object.values(data).find(v => Array.isArray(v))) || [];
         personsRef.current = Array.isArray(parsedPersons) ? parsedPersons : [];
         if (data.backend_fps !== undefined) {
           aiFpsRef.current = data.backend_fps;
@@ -258,7 +255,8 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props)
         });
       });
 
-      const res = await fetch(WHEP_URL, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription!.sdp });
+      const dynamicWhepUrl = `http://localhost:8889/${streamId}/whep`;
+      const res = await fetch(dynamicWhepUrl, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription!.sdp });
       if (!res.ok) throw new Error(`WHEP ${res.status}`);
       await pc.setRemoteDescription({ type: 'answer', sdp: await res.text() });
       setStatus('載入影像中…');
@@ -318,7 +316,7 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控' }: Props)
             <span className="inline-block w-1.5 h-1.5 bg-[#00ff88] rounded-full"></span>
             [傳輸] WebRTC 即時監控
           </div>
-          <div className="text-cyan-300">cam_in WHEP (原始高清鏡頭)</div>
+          <div className="text-cyan-300">{streamId} WHEP (原始高清鏡頭)</div>
 
           <div className="text-gray-400">YOLO 骨架 <span className="text-cyan-400 font-semibold">每 4 幀</span></div>
           <div className="text-[#00ff88] mt-1 pt-1 border-t border-cyan-500/20 flex items-center gap-1">
