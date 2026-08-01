@@ -63,3 +63,7 @@ active_learning_dataset/
 **/*.onnx.data
 Fall/tools/.clearml-logs-final/
 .clearml-logs-final/
+**/active_learning_pose_dataset/
+**/active_learning_split_dataset/
+**/active_learning_pose_split_dataset/
+**/label_studio_data/

@@ -735,13 +735,14 @@ def camera_worker(camera_id, video_source):
             del person_states[tid]
 
         # 發送繪圖 JSON 給前端
-        if persons_out_list:
+        if persons_out_list or frame_count % 10 == 0:
             try:
                 _detection_queue.put_nowait({
                     "1": persons_out_list, 
                     "Room_301_Bed": persons_out_list,
                     "persons": persons_out_list,
-                    camera_id: persons_out_list
+                    camera_id: persons_out_list,
+                    "backend_fps": round(measured_fps, 2)
                 })
             except Exception:
                 pass

@@ -12,6 +12,8 @@
 
 ## 🏗️ 核心檔案與架構全景導覽 (Core Components)
 
+<img width="978" height="769" alt="899e87f4-889c-4f60-b69b-0360afbbc657" src="https://github.com/user-attachments/assets/85f912c4-06dc-44b1-84e6-5f527e68ffa2" />
+
 本專案由關鍵模組、腳本、Docker 容器與組態配置交織而成，以下為各檔案在系統中的「白話文使命與核心職責」：
 
 ### 📁 第一階段：環境防禦與資料基石 (Env & Data Basics)
@@ -69,10 +71,10 @@
 
 ### 📁 第六階段：大自動化一鍵通電運維 (DevOps Automations)
 
-* **20. `start_all.sh`（一鍵總點火主控制腳本 - 智慧雙模式自動偵測）**
-  * *白話使命*：全系統 Master 啟動開關。內建 **NVIDIA GPU 智慧硬體感測探針**：在有 N 卡環境自動切換至 **NVIDIA DeepStream 7.0 容器 Pipeline (Prod 模式)**；在 Mac/無 N 卡環境自動切換至 **Python + OpenCV 巡邏引擎 (Dev 模式)**。自動啟動 Docker 基礎設施、Kafka 消費者、MediaMTX 串流中繼與全自動 MLOps 監視服務。
-* **21. `start_full_auto.sh`（前線微服務合流一鍵大通電腳本）**
-  * *白話使命*：中央配電盤。自動解除 Conda 環境對 `PATH` 的污染。一鍵開闢背景 Docker、點活夥伴 Kelly 的 FastAPI 後端（Port 8000）與 Consumer，切進 Fall 環境開啟 VLM 大腦。
+* **20. `start_edge.sh`（前線邊緣端駐守啟動腳本）**
+  * *白話使命*：前線 AI 推論與安防系統的主開關。負責一鍵啟動 FastAPI 後端、前端 Web 即時戰情室、MediaMTX 影像中繼，以及 VLM 警報攔截器與核心 AI 辨識引擎。自動偵測並支援手機/遠端 IP 鏡頭、Mac 內建視訊鏡頭或展示影片。
+* **21. `start_cloud.sh`（後勤雲端 MLOps 啟動腳本）**
+  * *白話使命*：雲端「煉丹爐」與標註伺服器的啟動開關。當需要幫 AI 補習重訓時才開啟，負責啟動 MLOps 基礎設施 Docker (ClearML, Label Studio, Kafka)，以及 Watchdog 巡邏員與 Webhook 監聽器，建立全自動的主動學習管線。
 
 ---
 

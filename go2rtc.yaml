@@ -1,0 +1,9 @@
+streams:
+  # 從 MediaMTX 抓取即時畫面，供前端使用 WebRTC 觀看
+  cam_webrtc: rtsp://127.0.0.1:8554/cam_in
+
+rtsp:
+  listen: ":8555"  # 避免跟 MediaMTX 的預設 port 8554 衝突
+
+api:
+  listen: ":1984"  # go2rtc 的 API 與 WebRTC 入口 (預設 1984)

@@ -34,18 +34,33 @@ signal.signal(signal.SIGTERM, graceful_exit)
 
 def run_sync():
     """執行同步標註腳本並處理異常"""
-    logger.info(">>> 開始執行影像同步與自動標註流程...")
+    logger.info(">>> 開始執行影像同步與自動標註流程 (包含 DETR 與 YOLO-Pose)...")
     try:
-        # 使用 check=True 來確保失敗時能拋出錯誤
-        result = subprocess.run(
+        # 1. 執行 DETR 物件偵測標註
+        logger.info(">>> 1/2 啟動 DETR 物件偵測自動標註...")
+        result_detr = subprocess.run(
             ["python", INFERENCE_SCRIPT],
             capture_output=True,
             text=True,
             check=True
         )
-        # 顯示同步輸出的關鍵摘要
-        if result.stdout:
-            logger.info(f"執行結果: {result.stdout.strip()}")
+        if result_detr.stdout:
+            logger.info(f"DETR 執行結果: {result_detr.stdout.strip()}")
+            
+        # 2. 執行 YOLO-Pose 骨架標註
+        POSE_SCRIPT = os.path.join(CURRENT_DIR, "pose_to_labelstudio_sdk.py")
+        if os.path.exists(POSE_SCRIPT):
+            logger.info(">>> 2/2 啟動 YOLO-Pose 骨架自動標註...")
+            result_pose = subprocess.run(
+                ["python", POSE_SCRIPT],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            if result_pose.stdout:
+                logger.info(f"YOLO-Pose 執行結果: {result_pose.stdout.strip()}")
+        else:
+            logger.warning(f"找不到 YOLO-Pose 標註腳本: {POSE_SCRIPT}")
             
     except subprocess.CalledProcessError as e:
         logger.error(f"同步腳本執行失敗 (Exit Code: {e.returncode})")

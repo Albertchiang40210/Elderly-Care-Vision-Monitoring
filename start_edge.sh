@@ -37,6 +37,22 @@ MEDIAMTX_CONF="$BASE_DIR/RTSP.MediaMTX_20260723/mediamtx(example).yml"
 nohup mediamtx "$MEDIAMTX_CONF" > "$BASE_DIR/mediamtx.log" 2>&1 &
 sleep 2
 
+# 3.5 啟動 go2rtc (WebRTC 專用轉播)
+echo "⚡ [3.5/4] 啟動 go2rtc (提供超低延遲 WebRTC)..."
+pkill -f go2rtc >/dev/null 2>&1
+if [ ! -f "$BASE_DIR/go2rtc" ]; then
+    echo "   ⬇️ 正在下載 go2rtc (首次啟動需下載)..."
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "arm64" ]; then
+        curl -L -s https://github.com/AlexxIT/go2rtc/releases/latest/download/go2rtc_mac_arm64 -o "$BASE_DIR/go2rtc"
+    else
+        curl -L -s https://github.com/AlexxIT/go2rtc/releases/latest/download/go2rtc_mac_amd64 -o "$BASE_DIR/go2rtc"
+    fi
+    chmod +x "$BASE_DIR/go2rtc"
+fi
+nohup "$BASE_DIR/go2rtc" -config "$BASE_DIR/go2rtc.yaml" > "$BASE_DIR/go2rtc.log" 2>&1 &
+sleep 2
+
 # =========================================================================
 # 📸 攝影機來源設定
 # 1. 真實手機/遠端 IP 攝影機 (填寫 RTSP 網址)
@@ -95,6 +111,15 @@ else
     echo "💻 [硬體偵測] 未發現 NVIDIA GPU，自動降級啟用 Python (GStreamer+OpenCV) 引擎！"
     (cd "$BASE_DIR/Fall/tools" && "$BASE_DIR/Fall/.venv/bin/python" inference_test.py --headless)
 fi
+
 echo "======================================================="
 echo "✅ [Edge 前線] 系統啟動完畢，AI 已進入 24H 監視狀態！"
 echo "======================================================="
+
+# =========================================================================
+# 📝 腳本備註：start_edge.sh (前線士兵)
+# 功用：這是模擬裝在病房攝影機裡的邊緣運算程式。
+# 它會開啟攝影機畫面、開始跑即時的 AI 推論、開啟護理站的警告網頁，
+# 並在有人跌倒時發送警報給後台。
+# 適合與 start_cloud.sh 搭配，做完整的落地實戰 Demo。
+# =========================================================================

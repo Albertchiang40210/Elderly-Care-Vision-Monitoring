@@ -1,4 +1,5 @@
 import os
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 from clearml import Task, OutputModel
 from ultralytics import RTDETR
 
@@ -6,7 +7,7 @@ def main():
     # 1. 初始化 Task
     # 當 Agent 背景執行時，這裡的 Task.init 會自動「接管」剛剛在 submit_task 建立好的排隊任務
     task = Task.init(
-        project_name="Fall_Detection", 
+        project_name="Hazard_Detection", 
         task_name="RTDETR_Cloud_Incremental_Training_Automated"
     )
     
@@ -29,6 +30,8 @@ def main():
     # 🎯 🌟 【業界滾動式重訓核心：繼承上一輪最強大腦】
     # 不要直接寫死 rtdetr-l.pt！先去 ClearML 雲端尋找有沒有同專案、最新產出的 'best' 模型
     base_model_path = 'rtdetr-l.pt'
+    old_map50 = 0.0
+
     try:
         from clearml import Model
         current_proj = task.get_project_name()
@@ -39,6 +42,15 @@ def main():
             cloud_bests = sorted(cloud_bests, key=lambda m: m.created, reverse=True)
             latest_cloud_model = cloud_bests[0]
             print(f"📥 [找到大腦] 發現上一輪的最新 RT-DETR 模型 (ID: {latest_cloud_model.id})，正在拉取權重進行繼承...")
+            
+            # 讀取舊模型的 mAP50 標籤做為擂台基準
+            for tag in latest_cloud_model.tags:
+                if tag.startswith("map50_"):
+                    try:
+                        old_map50 = float(tag.replace("map50_", ""))
+                    except ValueError:
+                        pass
+            print(f"🏆 [衛冕者成績] 舊模型的 mAP50 為 {old_map50:.4f}")
             
             # 下載該模型到 Agent 工作目錄下
             downloaded_base = latest_cloud_model.get_local_copy()
@@ -54,7 +66,124 @@ def main():
     model = RTDETR(base_model_path)
     
     CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-    data_yaml_path = os.path.join(CURRENT_DIR, 'data.yaml')
+    
+    # =========================================================================
+    # 🌟 動態資料切分 (Dynamic Data Splitting: 80% Train, 20% Valid)
+    # 解決資料集未最佳化、可能導致過擬合 (Overfitting) 的問題
+    # =========================================================================
+    import shutil
+    import random
+    
+    source_dir = os.path.join(CURRENT_DIR, "..", "active_learning_dataset")
+    split_dir = os.path.join(CURRENT_DIR, "..", "active_learning_split_dataset")
+    
+    # 建立動態切分的目錄結構
+    for split in ['train', 'val']:
+        for folder in ['images', 'labels']:
+            os.makedirs(os.path.join(split_dir, split, folder), exist_ok=True)
+            
+    # 讀取所有圖片
+    source_images_dir = os.path.join(source_dir, "images")
+    source_labels_dir = os.path.join(source_dir, "labels")
+    
+    if os.path.exists(source_images_dir):
+        all_images = [f for f in os.listdir(source_images_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        # =========================================================================
+        # 🌟 平衡抽樣演算法 (Stratified Split by Rarest Class)
+        # 解決類別不平衡問題，確保稀有類別在 Train/Val 中的比例一致
+        # =========================================================================
+        # 1. 讀取所有標籤，統計全域類別數量，並為每張照片找出出現的類別
+        image_classes = {}
+        global_class_counts = {}
+        
+        for img_name in all_images:
+            txt_name = os.path.splitext(img_name)[0] + ".txt"
+            src_txt = os.path.join(source_labels_dir, txt_name)
+            classes_in_img = set()
+            
+            if os.path.exists(src_txt):
+                with open(src_txt, 'r') as f:
+                    for line in f:
+                        parts = line.strip().split()
+                        if parts:
+                            cls_id = int(parts[0])
+                            classes_in_img.add(cls_id)
+                            global_class_counts[cls_id] = global_class_counts.get(cls_id, 0) + 1
+                            
+            image_classes[img_name] = list(classes_in_img)
+            
+        # 2. 決定每張照片的「主類別 (Primary Class)」 (取該照片中包含的最稀有類別)
+        # 若照片無標籤，歸類為 -1
+        img_primary_class = {}
+        for img, cls_list in image_classes.items():
+            if not cls_list:
+                img_primary_class[img] = -1
+            else:
+                # 依據 global_class_counts 排序，找出最稀有的類別
+                rarest_class = min(cls_list, key=lambda c: global_class_counts.get(c, float('inf')))
+                img_primary_class[img] = rarest_class
+                
+        # 3. 依據主類別進行分組
+        grouped_images = {}
+        for img, p_cls in img_primary_class.items():
+            grouped_images.setdefault(p_cls, []).append(img)
+            
+        train_images = []
+        val_images = []
+        
+        # 4. 對每個分組進行 80/20 切分 (保證平衡抽樣)
+        for p_cls, imgs in grouped_images.items():
+            random.seed(42 + p_cls) # 確保每次重訓的抽樣是可重現的
+            random.shuffle(imgs)
+            split_idx = int(len(imgs) * 0.8)
+            train_images.extend(imgs[:split_idx])
+            val_images.extend(imgs[split_idx:])
+            
+        print(f"📊 [平衡抽樣] 總共 {len(all_images)} 張相片。切分結果：Train={len(train_images)}, Valid={len(val_images)}")
+        print(f"   -> 類別分佈狀態: {global_class_counts}")
+        
+        # 清空舊的暫存檔
+        for folder in ['train', 'val']:
+            for sub in ['images', 'labels']:
+                d = os.path.join(split_dir, folder, sub)
+                for f in os.listdir(d):
+                    try:
+                        os.remove(os.path.join(d, f))
+                    except Exception:
+                        pass
+                    
+        # 複製檔案的內部函式
+        def copy_files(file_list, split_name):
+            for img_name in file_list:
+                # 複製圖片
+                src_img = os.path.join(source_images_dir, img_name)
+                dst_img = os.path.join(split_dir, split_name, "images", img_name)
+                if os.path.exists(src_img):
+                    shutil.copy(src_img, dst_img)
+                
+                # 複製對應標籤
+                txt_name = os.path.splitext(img_name)[0] + ".txt"
+                src_txt = os.path.join(source_labels_dir, txt_name)
+                dst_txt = os.path.join(split_dir, split_name, "labels", txt_name)
+                if os.path.exists(src_txt):
+                    shutil.copy(src_txt, dst_txt)
+
+        copy_files(train_images, 'train')
+        copy_files(val_images, 'val')
+    else:
+        print(f"⚠️ [警告] 找不到來源資料夾 {source_images_dir}，可能導致訓練失敗。")
+    
+    # 動態產生專用的 dynamic_data.yaml
+    dynamic_yaml_path = os.path.join(CURRENT_DIR, 'dynamic_data.yaml')
+    with open(dynamic_yaml_path, 'w', encoding='utf-8') as f:
+        f.write(f"path: {os.path.abspath(split_dir)}\n")
+        f.write("train: train/images\n")
+        f.write("val: val/images\n\n")
+        f.write("names:\n")
+        f.write("  0: wheelchair\n")
+        f.write("  1: bed\n")
+        
+    print(f"✅ [動態切分] dynamic_data.yaml 產生完成！路徑：{dynamic_yaml_path}")
 
     # 3. 開始訓練
     # 🎯 直接在 train 內加入 plots=False，這能 100% 關閉大圖生成與上傳，
@@ -63,49 +192,90 @@ def main():
     train_device = 'cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu')
     
     model.train(
-        data=data_yaml_path, 
+        data=dynamic_yaml_path, 
         epochs=10,             # 【實戰設定】設為 10 輪 (快速高效重訓)
         imgsz=640, 
         batch=8,               # 【Mac MPS 穩定設定】批次大小 8 避免顯存溢出
         lr0=0.001,             # 【實戰設定】微調學習率
         patience=10,           # 【實戰設定】早停機制
         device=train_device,   # 自動偵測 GPU/MPS 加速
-        plots=False            # 阻擋生成/上傳大圖，確保連線不中斷
+        plots=False,           # 阻擋生成/上傳大圖，確保連線不中斷
+        project="runs/detect",
+        name="train",
+        exist_ok=True
     )
 
+    # 4. 讀取訓練後的成績 (Challenger mAP50)
+    import pandas as pd
+    new_map50 = 0.0
+    csv_path = "runs/detect/train/results.csv"
+    if os.path.exists(csv_path):
+        try:
+            df = pd.read_csv(csv_path)
+            df.columns = df.columns.str.strip()
+            if "metrics/mAP50(B)" in df.columns:
+                new_map50 = df.iloc[-1]["metrics/mAP50(B)"]
+                print(f"📊 [挑戰者成績] 剛訓練完的新模型 mAP50 為 {new_map50:.4f}")
+        except Exception as e:
+            print(f"⚠️ 解析 results.csv 失敗: {e}")
+
     # =========================================================================
-    # 🎯 動態綁定並強制為 ClearML 自動偵測到的模型貼上 'detr' 與 'best' 標籤
+    # 5. 打擂台機制 (Champion vs Challenger) 與 Discord Webhook
     # =========================================================================
-    # 直接向當前的 task 索取它在訓練過程中自動偵測並準備上傳的所有模型物件
+    WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/1532199171531083846/OUJSFZjAw710l7Szw66hrzspo3aGfniGves8pP1nUSQ1x9EOAzP9yJT1wmATMg7yx_Bt")
+
+    def send_discord_notification(title, message, color):
+        if not WEBHOOK_URL:
+            return
+        try:
+            import requests
+            data = {
+                "embeds": [{
+                    "title": title,
+                    "description": message,
+                    "color": color
+                }]
+            }
+            requests.post(WEBHOOK_URL, json=data, timeout=5)
+        except Exception as e:
+            print(f"⚠️ 發送 Discord 通知失敗: {e}")
+
     models = task.get_models()
+    output_model = None
     
     if models and 'output' in models and len(models['output']) > 0:
         print("\n🚀 成功偵測到 ClearML 已自動捕捉到訓練產出的模型！")
-        # 取得最新產出的輸出模型物件（最後一個元素）
         output_model = models['output'][-1]
-        
-        # 強制為這個模型貼上 'detr' 與 'best' 標籤，讓自動更新 SDK 可以一秒識別並下載
-        output_model.tags = ['detr', 'best']
-        print("✅ [模型倉庫同步完成] 最新權重已成功上傳，並標記為 'detr', 'best' 標籤！\n")
     else:
-        # 💡 Fallback 安全備份機制：如果 ClearML 沒有在第一時間自動捕捉，我們再用手動方式去抓
+        # 💡 Fallback 安全備份機制
         print("ℹ️ ClearML 未能自動捕捉模型，啟用 Fallback 機制尋找本地檔案...")
         local_best_path = "runs/detect/train/weights/best.pt"
-        
         if os.path.exists(local_best_path):
-            # 🎯 雙重保險：手動建立 OutputModel
-            output_model = OutputModel(
-                task=task, 
-                name="RTDETR_Cloud_Incremental_Training_Automated"
-            )
+            output_model = OutputModel(task=task, name="RTDETR_Cloud_Incremental_Training_Automated")
             output_model.update_weights(weights_filename=local_best_path, auto_delete_local_copy=False)
-            
-            # 🎯 語法修正：改為屬性賦值，避免報錯
-            output_model.tags = ['detr', 'best']
-            print("✅ [Fallback 同步完成] 已手動將本地模型推送至模型倉庫並標記 'detr', 'best'！\n")
 
+    if output_model:
+        # 動態貼標與打擂台
+        map_tag = f"map50_{new_map50:.4f}"
+        
+        if new_map50 >= old_map50:
+            print(f"🎉 打擂台成功！新模型 ({new_map50:.4f}) 擊敗或平手舊模型 ({old_map50:.4f})")
+            output_model.tags = ['detr', 'best', map_tag]
+            
+            # 發送成功通知 (綠色: 5763719)
+            msg = f"**新模型 mAP50**: `{new_map50:.4f}` 🏆 (超越或持平舊版 `{old_map50:.4f}`)\n**狀態**: 已自動標記為 `best`，Edge 端即將自動更新！\n**Task ID**: `{task.id}`"
+            send_discord_notification("🎉 【模型重訓成功：自動部署過關】", msg, 5763719)
         else:
-            print("\n⚠️ 警告：找不到任何自動或本地的模型權重，請檢查訓練是否正常結束。\n")
+            print(f"⚠️ 打擂台失敗！新模型 ({new_map50:.4f}) 遜於舊模型 ({old_map50:.4f})")
+            output_model.tags = ['detr', 'Draft', map_tag]
+            
+            # 發送失敗通知 (紅色: 15548997)
+            msg = f"**新模型 mAP50**: `{new_map50:.4f}` ❌ (低於舊版 `{old_map50:.4f}`)\n**狀態**: 模型表現退步，已自動廢棄並維持原冠軍模型運作。\n**Task ID**: `{task.id}`"
+            send_discord_notification("⚠️ 【模型重訓警告：自動阻擋部署】", msg, 15548997)
+
+        print(f"✅ [模型倉庫同步完成] 權重處理完畢，目前標籤: {output_model.tags}\n")
+    else:
+        print("\n⚠️ 警告：找不到任何自動或本地的模型權重，請檢查訓練是否正常結束。\n")
 
 if __name__ == "__main__":
     main()

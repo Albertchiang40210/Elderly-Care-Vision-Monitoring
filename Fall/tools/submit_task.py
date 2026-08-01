@@ -100,7 +100,11 @@ def main(project_name=None):
         return
 
     # 3. 準備執行腳本 (處理融合安裝邏輯)
-    orig_pipeline_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "clearml_train_pipeline.py")
+    if "Fall" in project_name:
+        script_name = "clearml_pose_train_pipeline.py"
+    else:
+        script_name = "clearml_train_pipeline.py"
+    orig_pipeline_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), script_name)
     temp_pipeline_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".temp_pipeline.py")
 
     if not os.path.exists(orig_pipeline_path):
@@ -114,9 +118,9 @@ def main(project_name=None):
     auto_install = (
         "import sys, subprocess, os\n"
         "try:\n"
-        "    import ultralytics, clearml\n"
+        "    import ultralytics, clearml, pandas\n"
         "except ImportError:\n"
-        "    subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'ultralytics', 'clearml'])\n\n"
+        "    subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'ultralytics', 'clearml', 'pandas'])\n\n"
     )
     with open(temp_pipeline_path, "w", encoding="utf-8") as f:
         f.write(auto_install + code)
@@ -130,11 +134,11 @@ def main(project_name=None):
         detect_repository=False
     )
     
-    # 任務建立後可刪除暫存檔保持資料夾乾淨
-    try:
-        os.remove(temp_pipeline_path)
-    except:
-        pass
+    # 任務建立後可刪除暫存檔保持資料夾乾淨 (❌ 這裡不能刪！否則地端 Agent baremetal 執行會找不到檔案而秒掛)
+    # try:
+    #     os.remove(temp_pipeline_path)
+    # except:
+    #     pass
 
     # 🎯 🌟 [極度關鍵] 這裡必須明確告訴 Agent 什麼都不用做，直接跑腳本！
     task.set_base_docker(None)

@@ -42,8 +42,8 @@ ACTIVE_MODEL_PATH = str(PROJECT_ROOT / "active_learning_pose_dataset" / "models"
 DEFAULT_MODEL_PATH = str(PROJECT_ROOT / "yolo11s-pose.pt")
 MODEL_PATH = ACTIVE_MODEL_PATH if os.path.exists(ACTIVE_MODEL_PATH) else DEFAULT_MODEL_PATH
 
-# 🎯 指定抓取 VLM 判定為「誤報」的跌倒資料夾
-IMAGES_DIR = PROJECT_ROOT / "active_learning_dataset" / "false_alarms" / "images"
+# 🎯 指定抓取 VLM 判定為「誤報」的跌倒資料夾 (專屬 Label Studio 隔離區)
+IMAGES_DIR = PROJECT_ROOT / "label_studio_data" / "pose_false_alarms" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 # COCO 17 個關節點對應表
@@ -140,7 +140,7 @@ for p_target in TARGET_PROJECTS:
             for result in results:
                 if result.keypoints is None or result.keypoints.xyn is None: continue
                 
-                width, height = result.orig_shape[1], result.orig_shape[0]
+                width, height = int(result.orig_shape[1]), int(result.orig_shape[0])
                 kpts_xyn = result.keypoints.xyn.cpu().numpy()  # [N, 17, 2]
                 confs = result.boxes.conf.cpu().numpy()
                 
@@ -152,7 +152,7 @@ for p_target in TARGET_PROJECTS:
                         if x_norm == 0 and y_norm == 0: continue # 該關節點被遮擋或無效
                         
                         kp_name = KPT_NAMES[kp_idx]
-                        x_pct, y_pct = x_norm * 100, y_norm * 100
+                        x_pct, y_pct = float(x_norm * 100), float(y_norm * 100)
                         
                         res_item = {
                             "original_width": width,

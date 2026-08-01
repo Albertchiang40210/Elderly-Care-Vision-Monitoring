@@ -33,6 +33,7 @@ pkill -f "npm run dev"
 echo "📡 正在關閉串流與中繼服務..."
 pkill -f "ffmpeg.*rtsp://localhost:8554"
 pkill -f mediamtx
+pkill -f go2rtc
 kill -9 $(lsof -t -i:9001) 2>/dev/null  # Webhook
 kill -9 $(lsof -t -i:8000) 2>/dev/null  # FastAPI
 kill -9 $(lsof -t -i:3000) 2>/dev/null  # React Frontend

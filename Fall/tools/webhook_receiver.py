@@ -21,7 +21,7 @@ app = FastAPI()
 # 🚀 改為「字典型態」的計數器，為每個專案獨立計數！
 # 格式: {"Hazard_Detection": 3, "Fall_Detection": 8}
 PROJECT_COUNTERS: Dict[str, int] = {}
-TRIGGER_THRESHOLD = 889  # 🚀 累積滿 889 張照片即自動點火 ClearML 重訓 (精準對齊資料集總數)
+TRIGGER_THRESHOLD = 100  # 🚀 累積滿 100 張照片即自動點火 ClearML 重訓
 
 lock = asyncio.Lock()
 
@@ -42,7 +42,10 @@ async def async_clearml_fire(project_name: str):
             # 🎯 啟動重訓前，強制執行 SDK 同步，帶入對應專案
             try:
                 print(f"[*] 正在連線 Label Studio 將 '{project_name}' 最新人工標記成果同步至地端...")
-                sdk_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "inference_to_labelstudio_sdk.py")
+                if "Fall" in project_name:
+                    sdk_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "export_pose_annotations.py")
+                else:
+                    sdk_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "export_detr_annotations.py")
                 # 可選：若你的 SDK 支援傳帶專案名稱參數，可寫成: [sys.executable, sdk_script, "--project", project_name]
                 subprocess.run([sys.executable, sdk_script], check=True)
                 print(f"✅ [同步成功] '{project_name}' 人工修正之 YOLO 標籤檔案已順利落地！")

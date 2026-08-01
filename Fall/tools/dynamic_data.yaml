@@ -1,0 +1,7 @@
+path: /Users/albert/Documents/專案/AIPE03/Fall/active_learning_split_dataset
+train: train/images
+val: val/images
+
+names:
+  0: wheelchair
+  1: bed
