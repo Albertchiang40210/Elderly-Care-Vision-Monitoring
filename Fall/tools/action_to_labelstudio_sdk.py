@@ -67,13 +67,13 @@ projects_res = session.get(f"{LS_URL}/api/projects/", timeout=5)
 project_id = None
 if projects_res.status_code == 200:
     for p in projects_res.json().get("results", []):
-        if p.get("title") in ["Action_Recognition_Video_V3", "Action_Recognition_Video_V2"]:
+        if p.get("title", "").startswith("Action_Recognition_Video"):
             project_id = p.get("id")
             print(f"✅ 找到專案: {p.get('title')} (ID: {project_id})")
             break
 
 if not project_id:
-    fail("找不到名為 Action_Recognition_Video_V3 或 V2 的專案，請先確認專案已建立。")
+    fail("找不到開頭為 Action_Recognition_Video 的專案，請先確認專案已建立。")
 
 # 同步 Local Storage
 print("[*] 嘗試同步 Local Storage...")
@@ -88,9 +88,15 @@ time.sleep(1)
 # =========================================================================
 # 4. 取得待標註的 Tasks 並進行 AI 預測
 # =========================================================================
-tasks_res = session.get(f"{LS_URL}/api/tasks/", params={"project": project_id, "page_size": 1000}, timeout=10)
-tasks = tasks_res.json().get("results", []) if tasks_res.status_code == 200 else []
-if not tasks: fail("專案中沒有任何影片 Task！")
+tasks_res = session.get(f"{LS_URL}/api/projects/{project_id}/tasks/", params={"page_size": 1000}, timeout=10)
+if tasks_res.status_code != 200:
+    print(f"⚠️ 無法取得 Tasks，狀態碼: {tasks_res.status_code}, 內容: {tasks_res.text[:200]}")
+    
+# 有些版本的 Label Studio 會回傳 list，有些會包在 {"results": [...]} 裡面
+tasks_data = tasks_res.json() if tasks_res.status_code == 200 else []
+tasks = tasks_data.get("results", []) if isinstance(tasks_data, dict) else tasks_data
+
+if not tasks: fail("專案中沒有任何影片 Task！(或撈取失敗)")
 
 print(f"🔥 共找到 {len(tasks)} 個影片 Task，準備進行 AI 預測...")
 
@@ -103,8 +109,9 @@ total_pushed = 0
 for idx, task in enumerate(tasks, 1):
     task_id = task["id"]
     video_url = task.get("data", {}).get("video", "")
-    # Label studio 的 local storage 網址可能是 /data/local-files/?d=label_studio_data/videos/xxx.mp4
-    filename = video_url.split("=")[-1] if "=" in video_url else video_url.split("/")[-1]
+    import urllib.parse
+    raw_path = video_url.split("=")[-1] if "=" in video_url else video_url
+    filename = Path(urllib.parse.unquote(raw_path)).name
     video_path = videos_dir / filename
     
     if not video_path.exists():

@@ -41,13 +41,13 @@ def main():
     projects_res = session.get(f"{LS_URL}/api/projects/", timeout=5)
     if projects_res.status_code == 200:
         for p in projects_res.json().get("results", []):
-            if p.get("title") in ["Action_Recognition_Video_V3", "Action_Recognition_Video_V2"]:
+            if p.get("title", "").startswith("Action_Recognition_Video"):
                 project_id = p.get("id")
                 print(f"✅ 找到專案: {p.get('title')} (ID: {project_id})")
                 break
                 
     if not project_id:
-        print("❌ 找不到 Action_Recognition_Video_V3 或 V2 專案，請確認專案已建立。")
+        print("❌ 找不到名稱開頭為 Action_Recognition_Video 的專案，請確認專案已建立。")
         sys.exit(1)
     
     export_url = f"{LS_URL}/api/projects/{project_id}/export?exportType=JSON"

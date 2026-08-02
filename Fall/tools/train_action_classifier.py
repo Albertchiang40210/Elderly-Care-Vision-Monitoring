@@ -98,7 +98,7 @@ def main():
     task = None
     if clearml_available:
         try:
-            task = Task.init(project_name="Fall_Detection_Action", task_name="Train_Transformer_Classifier")
+            task = Task.init(project_name="Fall_Detection_Action", task_name="Train_Transformer_Classifier", reuse_last_task_id=False)
             task.connect({
                 "epochs": EPOCHS, 
                 "batch_size": BATCH_SIZE, 
@@ -173,7 +173,7 @@ def main():
         print("🛡️ 保留原有 Champion 模型，捨棄本次訓練結果。")
         if CHALLENGER_MODEL_PATH.exists():
             os.remove(CHALLENGER_MODEL_PATH)
-
+        sys.exit(1) # 挑戰失敗，拋出例外以中止後續部署流程
 
 if __name__ == "__main__":
     main()

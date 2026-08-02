@@ -8,11 +8,8 @@ import json
 
 # 加入根目錄到 sys.path 確保能匯入其他模組
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-try:
-    from modules.action_transformer import ActionTransformer
-    from mlops_config.settings import settings
-except ImportError:
-    pass
+from modules.action_transformer import ActionTransformer
+from mlops_config.settings import settings
 
 class ActionTracker:
     def __init__(self, pose_model_path: str, sequence_length: int = 30):

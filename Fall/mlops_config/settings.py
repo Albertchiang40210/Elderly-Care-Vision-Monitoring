@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # 分類器訓練設定 (Action Transformer)
     # ==========================
     BATCH_SIZE: int = 16
-    EPOCHS: int = 30
+    EPOCHS: int = 150
     LEARNING_RATE: float = 1e-3
     INPUT_DIM: int = 34
     D_MODEL: int = 64
@@ -39,5 +39,6 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = True
+        extra = "ignore"
 
 settings = Settings()
