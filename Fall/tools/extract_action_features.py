@@ -39,6 +39,44 @@ def init_worker(model_path, seq_len):
     _local_tracker = ActionTracker(pose_model_path=model_path, sequence_length=seq_len)
     sys.stdout = sys.__stdout__
 
+def augment_pose_sequence(pose_seq):
+    """
+    對 (30, 17, 2) 的骨架序列進行資料擴增
+    回傳擴增後的序列 list
+    """
+    augmented_seqs = []
+    
+    # 1. 原始序列
+    augmented_seqs.append(pose_seq)
+    
+    # 2. 水平翻轉 (Horizontal Flip)
+    # 假設 X 座標是歸一化的 [0, 1]，則 x = 1.0 - x
+    flipped_seq = np.copy(pose_seq)
+    flipped_seq[:, :, 0] = 1.0 - flipped_seq[:, :, 0]
+    
+    # 左右關鍵點對調 (YOLO Pose 17 keypoints)
+    # 1: LEye, 2: REye, 3: LEar, 4: REar, 5: LShoulder, 6: RShoulder, 7: LElbow, 8: RElbow
+    # 9: LWrist, 10: RWrist, 11: LHip, 12: RHip, 13: LKnee, 14: RKnee, 15: LAnkle, 16: RAnkle
+    swap_pairs = [(1,2), (3,4), (5,6), (7,8), (9,10), (11,12), (13,14), (15,16)]
+    for left_idx, right_idx in swap_pairs:
+        temp = np.copy(flipped_seq[:, left_idx, :])
+        flipped_seq[:, left_idx, :] = flipped_seq[:, right_idx, :]
+        flipped_seq[:, right_idx, :] = temp
+        
+    augmented_seqs.append(flipped_seq)
+    
+    # 3. 微小雜訊干擾 (Jittering) 對原始
+    noise_1 = np.random.normal(0, 0.005, size=pose_seq.shape)
+    jittered_seq_1 = np.clip(pose_seq + noise_1, 0.0, 1.0)
+    augmented_seqs.append(jittered_seq_1)
+    
+    # 4. 微小雜訊干擾 (Jittering) 對翻轉
+    noise_2 = np.random.normal(0, 0.005, size=flipped_seq.shape)
+    jittered_seq_2 = np.clip(flipped_seq + noise_2, 0.0, 1.0)
+    augmented_seqs.append(jittered_seq_2)
+    
+    return augmented_seqs
+
 def process_video(video_info):
     """處理單部影片的任務函數"""
     video_file, video_path, label, conf_thres = video_info
@@ -59,9 +97,12 @@ def process_video(video_info):
         
         if frame_count % stride == 0:
             for track_id, pose_seq in ready_sequences.items():
-                flattened_feature = pose_seq.flatten()
-                features.append(flattened_feature)
-                labels.append(label)
+                # 資料擴增：1變4
+                aug_seqs = augment_pose_sequence(pose_seq)
+                for seq in aug_seqs:
+                    flattened_feature = seq.flatten()
+                    features.append(flattened_feature)
+                    labels.append(label)
                 
         frame_count += 1
         
