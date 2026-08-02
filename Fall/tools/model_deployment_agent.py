@@ -23,7 +23,7 @@ else:
 
 # ==================== 配置參數 ====================
 TRITON_HTTP_URL = "http://localhost:8000"  # Triton HTTP 服務埠
-MODEL_NAME = "rt_detr"                     # Triton 中的模型名稱
+# MODEL_NAME 改為動態判斷
 
 # 💡 動態路徑，自動對齊專案內 model_repository 目錄
 MODEL_REPOSITORY_PATH = str(current_dir.parent / "model_repository")
@@ -49,12 +49,17 @@ def get_latest_model_key_from_local(model_type: str = "yolo_pose") -> str:
     if not files: return ""
 def get_latest_model_key_from_local(model_type: str = "rt_detr") -> str:
     """
-    從地端 Fall/active_learning_dataset/models/<model_type>/ 搜尋最新重訓的最佳模型
+    從地端搜尋最新重訓的最佳模型
     """
-    target_dir = LOCAL_MODELS_BASE / model_type
+    if model_type == "action_classifier":
+        target_dir = current_dir.parent / "models" / "action_classifier"
+    else:
+        target_dir = LOCAL_MODELS_BASE / model_type
+        
     print(f"🔍 正在從地端目錄 {target_dir} 搜尋最新重訓模型...")
     if not target_dir.exists():
-        target_dir = LOCAL_MODELS_BASE
+        if model_type != "action_classifier":
+            target_dir = LOCAL_MODELS_BASE
         if not target_dir.exists(): return ""
     
     files = []
@@ -74,14 +79,14 @@ def get_latest_model_key_from_local(model_type: str = "rt_detr") -> str:
     return latest_path
 
 
-def deploy_new_model(new_model_path: str, version: int = 2):
+def deploy_new_model(new_model_path: str, version: int = 2, triton_model_name: str = "rt_detr"):
     """
     將地端新訓練好的模型部署至 Triton，並觸發熱部署 (Warm Start)
     """
-    print("🚀 [MLOps 部署代理人] 開始啟動地端熱部署流程...")
+    print(f"🚀 [MLOps 部署代理人] 開始啟動地端熱部署流程 ({triton_model_name})...")
 
     # 1. 確保 Triton 的目標版本資料夾存在
-    target_version_dir = os.path.join(MODEL_REPOSITORY_PATH, MODEL_NAME, str(version))
+    target_version_dir = os.path.join(MODEL_REPOSITORY_PATH, triton_model_name, str(version))
     os.makedirs(target_version_dir, exist_ok=True)
     
     target_model_path = os.path.join(target_version_dir, "model.onnx")
@@ -97,7 +102,7 @@ def deploy_new_model(new_model_path: str, version: int = 2):
         return False
 
     # 3. 發送 HTTP POST 請求給 Triton 觸發熱部署 (Warm Start)
-    reload_url = f"{TRITON_HTTP_URL}/v2/repository/models/{MODEL_NAME}/load"
+    reload_url = f"{TRITON_HTTP_URL}/v2/repository/models/{triton_model_name}/load"
     
     print(f"🔄 正在向 Triton 發送重新載入訊號 (HTTP POST): {reload_url}")
     try:
@@ -115,7 +120,7 @@ def deploy_new_model(new_model_path: str, version: int = 2):
         return True
 
     # 4. 主動輪詢 (Polling) 檢查模型是否成功 READY
-    status_url = f"{TRITON_HTTP_URL}/v2/models/{MODEL_NAME}/versions/{version}/ready"
+    status_url = f"{TRITON_HTTP_URL}/v2/models/{triton_model_name}/versions/{version}/ready"
     max_retries = 25  # ONNX 初始化與編譯較耗時，設定為 25 次 (50秒)
     retry_interval = 2
 
@@ -143,6 +148,15 @@ def main():
     print("=======================================================")
 
     m_type = sys.argv[1] if len(sys.argv) > 1 else "rt_detr"
+    
+    # 決定 Triton 模型名稱
+    if m_type == "action_classifier":
+        triton_model_name = "action_transformer"
+    elif m_type == "yolo_pose":
+        triton_model_name = "yolo_pose"
+    else:
+        triton_model_name = "rt_detr"
+        
     latest_local_path = get_latest_model_key_from_local(model_type=m_type)
     
     if latest_local_path and os.path.exists(latest_local_path):
@@ -173,7 +187,7 @@ def main():
             final_onnx_path = latest_local_path
         
         if final_onnx_path and os.path.exists(final_onnx_path):
-            deploy_new_model(new_model_path=final_onnx_path, version=2)
+            deploy_new_model(new_model_path=final_onnx_path, version=2, triton_model_name=triton_model_name)
         else:
             print("❌ 部署中斷，找不到可用的 ONNX 模型檔。")
     else:

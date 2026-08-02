@@ -30,6 +30,13 @@ def main():
     script_3 = os.path.join(base_dir, "export_action_model.py")
     subprocess.check_call([sys.executable, script_3])
 
+    # 4. 熱更新到 Triton
+    print("\n" + "="*40)
+    print("4️⃣ 發動 MLOps 代理人，進行 Triton 熱部署...")
+    print("="*40)
+    script_4 = os.path.join(base_dir, "model_deployment_agent.py")
+    subprocess.check_call([sys.executable, script_4, "action_classifier"])
+
     print("\n" + "="*50)
     print("🎉 Action Transformer 全自動重訓與熱更新成功完成！")
     print("="*50)
