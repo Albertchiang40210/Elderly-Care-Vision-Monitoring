@@ -4,6 +4,10 @@ from clearml import Task, OutputModel
 from ultralytics import YOLO
 
 def main():
+    # 0. 訓練前，自動確保從 Label Studio 倒出最新的人工標註資料 (防呆機制)
+    print("🔄 [自動防呆] 正在從 Label Studio 匯出最新標註資料...")
+    os.system("python Fall/tools/export_pose_annotations.py")
+    
     # 1. 初始化 Task
     # 這是專為「人體姿態/跌倒辨識」打造的專屬高速公路！
     task = Task.init(
@@ -180,7 +184,7 @@ def main():
     
     model.train(
         data=dynamic_yaml_path, 
-        epochs=10,             
+        epochs=30,             
         imgsz=640, 
         batch=8,               # 【Mac MPS 穩定設定】
         lr0=0.001,             
@@ -195,7 +199,7 @@ def main():
     # 4. 讀取訓練後的成績 (Challenger mAP50)
     import pandas as pd
     new_map50 = 0.0
-    csv_path = "runs/pose/train/results.csv"
+    csv_path = f"{model.trainer.save_dir}/results.csv" if getattr(model, 'trainer', None) else "runs/pose/train/results.csv"
     if os.path.exists(csv_path):
         try:
             df = pd.read_csv(csv_path)

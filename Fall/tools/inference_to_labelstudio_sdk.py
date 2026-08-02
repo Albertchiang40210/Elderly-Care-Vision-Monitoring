@@ -160,12 +160,17 @@ for p_target in TARGET_PROJECTS:
 
     tasks_url = f"{LS_URL}/api/tasks/"
     session.headers.update({"X-CSRFToken": session.cookies.get('csrftoken', '')})
-    tasks_res = session.get(tasks_url, params={"project": pid, "page_size": 1000}, timeout=10)
     
     pending = []
-    if tasks_res.status_code == 200:
+    page = 1
+    while True:
+        tasks_res = session.get(tasks_url, params={"project": pid, "page": page, "page_size": 100}, timeout=15)
+        if tasks_res.status_code != 200: break
         data = tasks_res.json()
-        pending = data.get("results", data.get("tasks", [])) if isinstance(data, dict) else data
+        page_data = data.get("results", data.get("tasks", [])) if isinstance(data, dict) else data
+        if not page_data: break
+        pending.extend(page_data)
+        page += 1
 
     if not isinstance(pending, list) or len(pending) == 0:
         print(f"ℹ️ 專案 {pid} ({pname}) 目前沒有 Tasks。")

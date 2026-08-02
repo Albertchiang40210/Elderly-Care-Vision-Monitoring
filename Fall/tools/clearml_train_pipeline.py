@@ -4,6 +4,10 @@ from clearml import Task, OutputModel
 from ultralytics import RTDETR
 
 def main():
+    # 0. 訓練前自動匯出最新標註 (防呆機制)
+    print("🔄 [自動防呆] 正在從 Label Studio 匯出最新標註資料...")
+    os.system("python Fall/tools/export_detr_annotations.py")
+    
     # 1. 初始化 Task
     # 當 Agent 背景執行時，這裡的 Task.init 會自動「接管」剛剛在 submit_task 建立好的排隊任務
     task = Task.init(
@@ -208,7 +212,7 @@ def main():
     # 4. 讀取訓練後的成績 (Challenger mAP50)
     import pandas as pd
     new_map50 = 0.0
-    csv_path = "runs/detect/train/results.csv"
+    csv_path = f"{model.trainer.save_dir}/results.csv" if getattr(model, 'trainer', None) else "runs/detect/train/results.csv"
     if os.path.exists(csv_path):
         try:
             df = pd.read_csv(csv_path)

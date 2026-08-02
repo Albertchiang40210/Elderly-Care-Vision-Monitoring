@@ -66,14 +66,21 @@ except Exception as e:
 # =========================================================================
 # 3. 獲取 Tasks 並解析
 # =========================================================================
-tasks_res = session.get(f"{LS_URL}/api/tasks/?project={PID}&page_size=1000", timeout=10)
-if tasks_res.status_code != 200:
-    print(f"❌ 獲取 Tasks 失敗: HTTP {tasks_res.status_code}")
-    sys.exit(1)
-
-tasks = tasks_res.json()
-if isinstance(tasks, dict):
-    tasks = tasks.get("tasks", [])
+tasks = []
+page = 1
+while True:
+    tasks_res = session.get(f"{LS_URL}/api/tasks/?project={PID}&page={page}&page_size=100", timeout=15)
+    if tasks_res.status_code != 200:
+        if page == 1:
+            print(f"❌ 獲取 Tasks 失敗: HTTP {tasks_res.status_code}")
+            sys.exit(1)
+        break
+    
+    tasks_data = tasks_res.json()
+    page_tasks = tasks_data.get("tasks", []) if isinstance(tasks_data, dict) else tasks_data
+    if not page_tasks: break
+    tasks.extend(page_tasks)
+    page += 1
 
 exported_count = 0
 

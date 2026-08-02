@@ -106,13 +106,19 @@ for p_target in TARGET_PROJECTS:
                 time.sleep(1)
     except Exception: pass
 
-    # 取得 Tasks
-    tasks_res = session.get(f"{LS_URL}/api/tasks/?project={pid}", timeout=10)
-    if tasks_res.status_code != 200: continue
-    tasks = tasks_res.json()
+    # 取得 Tasks (實作分頁讀取，避免單次上限限制)
+    all_tasks = []
+    page = 1
+    while True:
+        tasks_res = session.get(f"{LS_URL}/api/tasks/?project={pid}&page={page}&page_size=100", timeout=15)
+        if tasks_res.status_code != 200: break
+        tasks_page = tasks_res.json()
+        if isinstance(tasks_page, dict): tasks_page = tasks_page.get("tasks", [])
+        if not tasks_page: break
+        all_tasks.extend(tasks_page)
+        page += 1
     
-    if not isinstance(tasks, list):
-        tasks = tasks.get("tasks", []) if isinstance(tasks, dict) else []
+    tasks = all_tasks
 
     unannotated_tasks = [t for t in tasks if not t.get("is_labeled") and not t.get("predictions")]
     if not unannotated_tasks:

@@ -88,13 +88,19 @@ time.sleep(1)
 # =========================================================================
 # 4. 取得待標註的 Tasks 並進行 AI 預測
 # =========================================================================
-tasks_res = session.get(f"{LS_URL}/api/projects/{project_id}/tasks/", params={"page_size": 1000}, timeout=10)
-if tasks_res.status_code != 200:
-    print(f"⚠️ 無法取得 Tasks，狀態碼: {tasks_res.status_code}, 內容: {tasks_res.text[:200]}")
+tasks = []
+page = 1
+while True:
+    tasks_res = session.get(f"{LS_URL}/api/projects/{project_id}/tasks/", params={"page": page, "page_size": 100}, timeout=15)
+    if tasks_res.status_code != 200:
+        if page == 1: print(f"⚠️ 無法取得 Tasks，狀態碼: {tasks_res.status_code}, 內容: {tasks_res.text[:200]}")
+        break
     
-# 有些版本的 Label Studio 會回傳 list，有些會包在 {"results": [...]} 裡面
-tasks_data = tasks_res.json() if tasks_res.status_code == 200 else []
-tasks = tasks_data.get("results", []) if isinstance(tasks_data, dict) else tasks_data
+    tasks_data = tasks_res.json()
+    page_tasks = tasks_data.get("results", []) if isinstance(tasks_data, dict) else tasks_data
+    if not page_tasks: break
+    tasks.extend(page_tasks)
+    page += 1
 
 if not tasks: fail("專案中沒有任何影片 Task！(或撈取失敗)")
 

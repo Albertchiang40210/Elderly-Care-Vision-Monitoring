@@ -25,6 +25,10 @@ def main():
     print("🚀 啟動 ClearML 動作分類器 (Action Transformer) 全自動重訓流程...")
     print("="*50)
 
+    print("\n" + "="*40)
+    print("0️⃣ 自動從 Label Studio 匯出最新標註資料 (防呆機制)...")
+    os.system("python Fall/tools/fetch_annotations.py")
+
     # 1. 特徵提取 (YOLO-Pose)
     print("\n" + "="*40)
     print("1️⃣ 進行骨架特徵提取 (YOLO-Pose)...")
