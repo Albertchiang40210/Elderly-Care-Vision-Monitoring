@@ -44,55 +44,124 @@ def fail(msg: str) -> None:
 # =========================================================================
 # 2. 模擬瀏覽器登入 Label Studio
 # =========================================================================
-# print(f"[*] 正在建立 Session 並嘗試登入 {LS_URL} ...")
-# session = requests.Session()
-# login_page_url = f"{LS_URL}/user/login/"
-# try:
-#     init_res = session.get(login_page_url, timeout=5)
-#     csrftoken = session.cookies.get('csrftoken', '')
-# except Exception as e: fail(f"無法連線至 Label Studio 服務: {e}")
+print(f"[*] 正在建立 Session 並嘗試登入 {LS_URL} ...")
+session = requests.Session()
+login_page_url = f"{LS_URL}/user/login/"
+try:
+    init_res = session.get(login_page_url, timeout=5)
+    csrftoken = session.cookies.get('csrftoken', '')
+except Exception as e: fail(f"無法連線至 Label Studio 服務: {e}")
 
-# login_data = {"email": USERNAME, "password": PASSWORD, "csrfmiddlewaretoken": csrftoken}
-# session.headers.update({"User-Agent": "Mozilla/5.0", "Referer": login_page_url})
-# login_res = session.post(login_page_url, data=login_data, allow_redirects=True)
-# if "login" in login_res.url: fail("帳號或密碼錯誤，請檢查 USERNAME 和 PASSWORD 設定！")
-# print("🎉 [登入成功] 已獲取合法網頁 Session 憑證！")
-print("⚠️ [測試模式] 已跳過 Label Studio 登入，直接執行本地影片推論...")
-
+login_data = {"email": USERNAME, "password": PASSWORD, "csrfmiddlewaretoken": csrftoken}
+session.headers.update({"User-Agent": "Mozilla/5.0", "Referer": login_page_url})
+login_res = session.post(login_page_url, data=login_data, allow_redirects=True)
+if "login" in login_res.url: fail("帳號或密碼錯誤，請檢查 USERNAME 和 PASSWORD 設定！")
+print("🎉 [登入成功] 已獲取合法網頁 Session 憑證！")
+session.headers.update({"X-CSRFToken": session.cookies.get('csrftoken', '')})
 
 # =========================================================================
-# 3. 讀取 ActionTracker 並執行影片/時間序列推論
+# 3. 尋找 Action Recognition 專案並同步 Local Storage
 # =========================================================================
+print("🔍 正在搜尋 Action Recognition 影片標註專案...")
+projects_res = session.get(f"{LS_URL}/api/projects/", timeout=5)
+project_id = None
+if projects_res.status_code == 200:
+    for p in projects_res.json().get("results", []):
+        if p.get("title") in ["Action_Recognition_Video_V3", "Action_Recognition_Video_V2"]:
+            project_id = p.get("id")
+            print(f"✅ 找到專案: {p.get('title')} (ID: {project_id})")
+            break
+
+if not project_id:
+    fail("找不到名為 Action_Recognition_Video_V3 或 V2 的專案，請先確認專案已建立。")
+
+# 同步 Local Storage
+print("[*] 嘗試同步 Local Storage...")
+storage_url = f"{LS_URL}/api/storages/localfiles/?project={project_id}"
+storage_res = session.get(storage_url, timeout=5)
+if storage_res.status_code == 200:
+    for st in storage_res.json():
+        st_id = st.get("id")
+        if st_id: session.post(f"{LS_URL}/api/storages/localfiles/{st_id}/sync", timeout=5)
+time.sleep(1)
+
+# =========================================================================
+# 4. 取得待標註的 Tasks 並進行 AI 預測
+# =========================================================================
+tasks_res = session.get(f"{LS_URL}/api/tasks/", params={"project": project_id, "page_size": 1000}, timeout=10)
+tasks = tasks_res.json().get("results", []) if tasks_res.status_code == 200 else []
+if not tasks: fail("專案中沒有任何影片 Task！")
+
+print(f"🔥 共找到 {len(tasks)} 個影片 Task，準備進行 AI 預測...")
+
 print(f"🔄 正在載入 ActionTracker (YOLO-Pose + Tracker)...")
 tracker = ActionTracker(pose_model_path=DEFAULT_MODEL_PATH, sequence_length=30)
 
-# TODO: 這裡示範如何對一個「影片」進行逐影格讀取並推論
-# 實務上這會從 Label Studio 抓取 Video 類型的 Task URL
-video_path = str(PROJECT_ROOT / "media" / "videos" / "fallforward_1P.mp4")
-if not os.path.exists(video_path):
-    print(f"⚠️ 找不到測試影片 {video_path}，腳本執行結束。")
-    print("💡 請確認影片已放置於 media/videos/ 資料夾內。")
-    sys.exit(0)
+videos_dir = PROJECT_ROOT / "label_studio_data" / "videos"
+total_pushed = 0
 
-cap = cv2.VideoCapture(video_path)
-frame_idx = 0
-
-print("🎬 開始處理影片特徵收集...")
-while cap.isOpened():
-    ret, frame = cap.read()
-    if not ret: break
+for idx, task in enumerate(tasks, 1):
+    task_id = task["id"]
+    video_url = task.get("data", {}).get("video", "")
+    # Label studio 的 local storage 網址可能是 /data/local-files/?d=label_studio_data/videos/xxx.mp4
+    filename = video_url.split("=")[-1] if "=" in video_url else video_url.split("/")[-1]
+    video_path = videos_dir / filename
     
-    # 使用 tracker 追蹤並取得符合條件的序列
-    results, ready_sequences = tracker.process_frame(frame, conf_thres=CONF_THRES)
+    if not video_path.exists():
+        print(f"⚠️ 找不到本地影片: {video_path}")
+        continue
+        
+    print(f"\n🎬 [Task {task_id}] 正在處理影片 ({idx}/{len(tasks)}): {filename} ...")
+    cap = cv2.VideoCapture(str(video_path))
     
-    # 檢查是否有人達標 (收集滿 sequence_length 影格的特徵)
-    for track_id, pose_seq in ready_sequences.items():
-        action_label = tracker.predict_action(pose_seq)
-        if action_label == "fall":
-            print(f"🚨 [Frame {frame_idx}] 偵測到 ID: {track_id} 發生跌倒 (Fall)！")
-            # 這裡可以實作呼叫 Label Studio API，推送一段包含 start_frame 和 end_frame 的 prediction
+    action_found = "normal"  # 預設為 normal
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret: break
+        
+        results, ready_sequences = tracker.process_frame(frame, conf_thres=CONF_THRES)
+        for track_id, pose_seq in ready_sequences.items():
+            action_label = tracker.predict_action(pose_seq)
+            if action_label == "fall":
+                action_found = "fall"
+                break
+        
+        if action_found == "fall":
+            break # 提早結束，判定為跌倒
             
-    frame_idx += 1
+    cap.release()
+    print(f"🎯 AI 預測結果: {action_found.upper()}")
+    
+    # 建立 Prediction Payload (整支影片分類)
+    pred_payload = {
+        "task": task_id,
+        "model_version": "ActionTracker-AutoLabel",
+        "result": [
+            {
+                "from_name": "action",
+                "to_name": "video",
+                "type": "choices",
+                "value": {
+                    "choices": [action_found]
+                }
+            }
+        ],
+        "score": 0.95
+    }
+    
+    # 先清除舊有過期預測
+    detail_res = session.get(f"{LS_URL}/api/tasks/{task_id}/", timeout=5)
+    if detail_res.status_code == 200:
+        for old_pred in detail_res.json().get("predictions", []):
+            if old_pred.get("id"):
+                session.delete(f"{LS_URL}/api/predictions/{old_pred['id']}/", timeout=5)
 
-cap.release()
-print("✅ 影片特徵收集與動作辨識模擬完成。")
+    res_pred = session.post(f"{LS_URL}/api/predictions/", json=pred_payload, timeout=10)
+    if res_pred.status_code in [200, 201]:
+        total_pushed += 1
+        print(f"✅ 成功寫入 Prediction！")
+    else:
+        print(f"❌ 寫入 Prediction 失敗: {res_pred.text}")
+
+print(f"\n🎉 大功告成！共為 {total_pushed} 支影片完成了 AI 預標註！")
+print("👉 請前往 Label Studio 重新整理網頁查看成果，直接審核即可！")

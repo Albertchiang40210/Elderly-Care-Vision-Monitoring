@@ -42,7 +42,9 @@ async def async_clearml_fire(project_name: str):
             # 🎯 啟動重訓前，強制執行 SDK 同步，帶入對應專案
             try:
                 print(f"[*] 正在連線 Label Studio 將 '{project_name}' 最新人工標記成果同步至地端...")
-                if "Fall" in project_name:
+                if "Action" in project_name or "Video" in project_name:
+                    sdk_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fetch_annotations.py")
+                elif "Fall" in project_name:
                     sdk_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "export_pose_annotations.py")
                 else:
                     sdk_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "export_detr_annotations.py")

@@ -28,7 +28,7 @@ def main(project_name=None):
     if not project_name:
         import argparse
         parser = argparse.ArgumentParser(description="ClearML 重訓點火器")
-        parser.add_argument("--project", type=str, default="Fall_Detection", choices=["Fall_Detection", "Hazard_Detection"], help="目標重訓專案名稱")
+        parser.add_argument("--project", type=str, default="Fall_Detection", help="目標重訓專案名稱")
         # 避免在已被 FastAPI/Uvicorn 載入時因 CLI args 解析衝突而報錯
         args, _ = parser.parse_known_args()
         project_name = args.project
@@ -38,6 +38,9 @@ def main(project_name=None):
     if project_name == "Hazard_Detection":
         task_name = "RTDETR_Cloud_Incremental_Training_Automated"
         project_id = 2
+    elif "Action" in project_name or "Video" in project_name:
+        task_name = "ActionTransformer_Cloud_Incremental_Training_Automated"
+        project_id = 5
     else:
         task_name = "YOLOPose_Cloud_Incremental_Training_Automated"
         project_id = 1
@@ -100,7 +103,9 @@ def main(project_name=None):
         return
 
     # 3. 準備執行腳本 (處理融合安裝邏輯)
-    if "Fall" in project_name:
+    if "Action" in project_name or "Video" in project_name:
+        script_name = "clearml_action_train_pipeline.py"
+    elif "Fall" in project_name:
         script_name = "clearml_pose_train_pipeline.py"
     else:
         script_name = "clearml_train_pipeline.py"

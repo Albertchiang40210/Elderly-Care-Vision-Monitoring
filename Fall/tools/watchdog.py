@@ -50,7 +50,7 @@ def run_sync():
         # 2. 執行 YOLO-Pose 骨架標註
         POSE_SCRIPT = os.path.join(CURRENT_DIR, "pose_to_labelstudio_sdk.py")
         if os.path.exists(POSE_SCRIPT):
-            logger.info(">>> 2/2 啟動 YOLO-Pose 骨架自動標註...")
+            logger.info(">>> 2/3 啟動 YOLO-Pose 骨架自動標註...")
             result_pose = subprocess.run(
                 ["python", POSE_SCRIPT],
                 capture_output=True,
@@ -61,6 +61,22 @@ def run_sync():
                 logger.info(f"YOLO-Pose 執行結果: {result_pose.stdout.strip()}")
         else:
             logger.warning(f"找不到 YOLO-Pose 標註腳本: {POSE_SCRIPT}")
+
+        # 3. 執行 Action 動作分類器自動標註 (影片)
+        ACTION_SCRIPT = os.path.join(CURRENT_DIR, "action_to_labelstudio_sdk.py")
+        if os.path.exists(ACTION_SCRIPT):
+            logger.info(">>> 3/3 啟動 Action 動作分類器自動標註 (影片)...")
+            result_action = subprocess.run(
+                ["python", ACTION_SCRIPT],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            if result_action.stdout:
+                logger.info(f"Action 執行結果: {result_action.stdout.strip()}")
+        else:
+            logger.warning(f"找不到 Action 標註腳本: {ACTION_SCRIPT}")
+            
             
     except subprocess.CalledProcessError as e:
         logger.error(f"同步腳本執行失敗 (Exit Code: {e.returncode})")

@@ -15,7 +15,6 @@ else: load_dotenv(PROJECT_ROOT / ".env")
 LS_URL = os.getenv("LS_URL", "http://localhost:8082")
 USERNAME = os.getenv("LABEL_STUDIO_USERNAME", "wang4021096@gmail.com")
 PASSWORD = os.getenv("LABEL_STUDIO_PASSWORD", "")
-PROJECT_ID = 5 # 這是我們剛剛建立的 Action_Recognition_Video_V3 專案 ID
 
 def main():
     print(f"[*] 正在連線至 Label Studio ({LS_URL})...")
@@ -35,9 +34,23 @@ def main():
         print("❌ 登入失敗！請檢查帳號密碼")
         sys.exit(1)
         
-    print("[*] 登入成功！正在下載最新標註結果...")
+    print("[*] 登入成功！正在尋找 Action 專案並下載最新標註結果...")
     
-    export_url = f"{LS_URL}/api/projects/{PROJECT_ID}/export?exportType=JSON"
+    # 動態取得 Project ID
+    project_id = None
+    projects_res = session.get(f"{LS_URL}/api/projects/", timeout=5)
+    if projects_res.status_code == 200:
+        for p in projects_res.json().get("results", []):
+            if p.get("title") in ["Action_Recognition_Video_V3", "Action_Recognition_Video_V2"]:
+                project_id = p.get("id")
+                print(f"✅ 找到專案: {p.get('title')} (ID: {project_id})")
+                break
+                
+    if not project_id:
+        print("❌ 找不到 Action_Recognition_Video_V3 或 V2 專案，請確認專案已建立。")
+        sys.exit(1)
+    
+    export_url = f"{LS_URL}/api/projects/{project_id}/export?exportType=JSON"
     res = session.get(export_url)
     if res.status_code == 200:
         data = res.json()
