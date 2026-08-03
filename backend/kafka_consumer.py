@@ -4,28 +4,30 @@
 
 import json
 import logging
-import os
 import time
 
 import httpx
-from dotenv import load_dotenv
 
-load_dotenv()
+try:
+    from backend.core.config import (
+        KAFKA_BOOTSTRAP_SERVERS,
+        KAFKA_TOPIC,
+        KAFKA_GROUP_ID,
+        EVENTS_URL,
+        EVENT_API_KEY,
+        RETRY_SLEEP_SECONDS,
+    )
+except ModuleNotFoundError:
+    from core.config import (
+        KAFKA_BOOTSTRAP_SERVERS,
+        KAFKA_TOPIC,
+        KAFKA_GROUP_ID,
+        EVENTS_URL,
+        EVENT_API_KEY,
+        RETRY_SLEEP_SECONDS,
+    )
 
 logger = logging.getLogger("kafka_consumer")
-
-KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
-EVENTS_URL = os.environ.get("EVENTS_URL", "http://localhost:8000/events")
-
-# ⚡ [關鍵修復] 補上預設的正確 EVENT_API_KEY，避免因為 Key 為空而導致告警被判定為毒訊息 (poison) 拋棄
-EVENT_API_KEY = os.environ.get(
-    "EVENT_API_KEY", 
-    "nAK4h8ARAJMjCSoWJ-uErx2KyZKGDF-jcXqmMUpkM_o"
-)
-
-TOPIC = "processed-reports"
-GROUP_ID = "fulilian-backend"
-RETRY_SLEEP_SECONDS = 5
 
 
 def classify_response(status_code: int) -> str:
@@ -69,9 +71,9 @@ def build_consumer():
     from kafka import KafkaConsumer
 
     return KafkaConsumer(
-        TOPIC,
+        KAFKA_TOPIC,
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS.split(","),
-        group_id=GROUP_ID,
+        group_id=KAFKA_GROUP_ID,
         enable_auto_commit=False,   # 處理成功才手動 commit（at-least-once）
         auto_offset_reset="latest",  # 首次啟動只收「從現在開始」的新警報
     )
@@ -79,7 +81,7 @@ def build_consumer():
 
 def run():
     consumer = build_consumer()
-    logger.info("consumer 啟動，監聽 topic=%s bootstrap=%s", TOPIC, KAFKA_BOOTSTRAP_SERVERS)
+    logger.info("consumer 啟動，監聽 topic=%s bootstrap=%s", KAFKA_TOPIC, KAFKA_BOOTSTRAP_SERVERS)
     try:
         for message in consumer:
             # 對「同一則」重試直到 ok/poison，期間不 commit（server 恢復前不掉件）

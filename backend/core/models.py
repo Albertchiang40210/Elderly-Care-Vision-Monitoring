@@ -94,6 +94,12 @@ class Staff(Base):
 
 
 def generate_event_id() -> str:
+    """產生人類可讀的事件 ID（格式：EVT-YYYYMMDD-HHMM-XXXXXXXX）。
+
+    ⚠ 碰撞風險說明：UUID4 只取前 8 碼（32-bit 空間），理論上在同一分鐘內產生
+    ~77,000 筆事件時有 50% 碰撞機率（生日悖論）。安養院場景事件頻率遠低於此，
+    風險可接受。若未來需要更高唯一性，改用完整 UUID4 或 ULID。
+    """
     now = datetime.now().strftime("%Y%m%d-%H%M")
     short_uuid = str(uuid.uuid4()).split("-")[0].upper()
     return f"EVT-{now}-{short_uuid}"

@@ -73,8 +73,8 @@ def seed_demo_data(db):
 def seed_accounts(db):
     """建立可以登入中控站的初始帳號（A001 管理員 / E001 陳雅文，密碼皆 123456）。"""
     accounts = [
-        {"employee_id": "A001", "full_name": "系統管理員", "email": "a001@fulilian.com", "role": "admin", "must_change_password": False},
-        {"employee_id": "E001", "full_name": "值班照護員", "email": "e001@fulilian.com", "role": "staff", "must_change_password": False},
+        {"employee_id": "A001", "full_name": "系統管理員", "email": "a001@fulilian.com", "role": "admin", "must_change_password": True},
+        {"employee_id": "E001", "full_name": "值班照護員", "email": "e001@fulilian.com", "role": "staff", "must_change_password": True},
     ]
     for account in accounts:
         if db.query(User).filter(User.employee_id == account["employee_id"]).first():

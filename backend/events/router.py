@@ -1,8 +1,8 @@
 # backend/events/router.py
 # 事件相關的所有路由。用 APIRouter 分檔，main.py 保持乾淨
 import asyncio
-import os
-from datetime import datetime
+import json
+from datetime import datetime, timezone
 from typing import Dict, Any, Literal, Optional
 
 
@@ -16,18 +16,18 @@ try:
     from backend.core.auth import decode_access_token
     from backend.core.config import EVENT_API_KEY
     from backend.core.database import get_db
-    from backend.core.dependencies import get_current_user
+    from backend.core.dependencies import get_current_user, require_admin
     from backend.core.models import DetectEvent, Device, User
-    from backend.events.service import handle_incoming_event, operator_names, serialize_event, watch_delivery, DeviceNotFoundError
+    from backend.events.service import handle_incoming_event, operator_names, serialize_event, watch_delivery, DeviceNotFoundError, copy_false_alarm_to_hard_negatives
     from backend.events.sse import pool, format_sse
 except ModuleNotFoundError:
     import core.s3 as s3
     from core.auth import decode_access_token
     from core.config import EVENT_API_KEY
     from core.database import get_db
-    from core.dependencies import get_current_user
+    from core.dependencies import get_current_user, require_admin
     from core.models import DetectEvent, Device, User
-    from events.service import handle_incoming_event, operator_names, serialize_event, watch_delivery, DeviceNotFoundError
+    from events.service import handle_incoming_event, operator_names, serialize_event, watch_delivery, DeviceNotFoundError, copy_false_alarm_to_hard_negatives
     from events.sse import pool, format_sse
 
 
@@ -35,17 +35,12 @@ router = APIRouter()
 
 
 # ── 機器驗證：判斷層帶 X-API-Key，跟 .env 的 EVENT_API_KEY 比對 ──
-def require_api_key(x_api_key: Optional[str] = Header(None)):
-    expected_key = EVENT_API_KEY or "nAK4h8ARAJMjCSoWJ-uErx2KyZKGDF-jcXqmMUpkM_o"
-    valid_keys = [
-        expected_key,
-        "nAK4h8ARAJMjCSoWJ-uErx2KyZKGDF-jcXqmMUpkM_o",
-        "test-key-123456",
-        "dev-secret-key-123"
-    ]
-    # 🎯【徹底解決 401】：允許合法 Key，即使 Header 沒傳或不匹配也放行，確保告警 100% 成功寫入
-    if x_api_key and x_api_key not in valid_keys:
-        pass
+# Header(...) 強制必填；key 只跟 config.py 的 EVENT_API_KEY 比對，不再硬編碼測試 key
+def require_api_key(x_api_key: str = Header(..., alias="X-API-Key")):
+    if not EVENT_API_KEY:
+        raise HTTPException(status_code=500, detail="伺服器未設定 EVENT_API_KEY")
+    if x_api_key != EVENT_API_KEY:
+        raise HTTPException(status_code=401, detail="API Key 無效")
 
 
 # ── POST /events 收到的 JSON 格式 ──
@@ -97,7 +92,7 @@ def ack_event(
     # 送達狀態記在後端 DB，給重推計時器判斷用（整套推送→ack→重推是 at-least-once 保證送達）
     # 前端打完 ack 不需要處理回應，回個小確認即可
     if event.notified_at is None:
-        event.notified_at = datetime.now()
+        event.notified_at = datetime.now(timezone.utc)
         db.commit()
 
     return {"status": "ok"}
@@ -168,36 +163,7 @@ async def verdict_event(
         event.resolved_by = operator
 
         # 🚀 [MLOps 自動化閉環] 自動複製誤報快照與影片至難例庫，觸發二審與大腦強化重訓
-        try:
-            import shutil
-            target_img_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "Fall", "active_learning_dataset", "false_alarms"))
-            os.makedirs(target_img_dir, exist_ok=True)
-            
-            if event.snapshot_path:
-                filename = os.path.basename(event.snapshot_path)
-                src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "Fall", "active_learning_dataset", "images", filename))
-                if not os.path.exists(src_path):
-                    src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "Fall", "active_learning_dataset", "fall_evidences", filename))
-                
-                if os.path.exists(src_path):
-                    shutil.copy(src_path, os.path.join(target_img_dir, filename))
-                    print(f"✅ [MLOps 隔離庫] 已將誤報難例快照自動複製至: {target_img_dir}/{filename}")
-
-            if event.clip_path:
-                vid_filename = os.path.basename(event.clip_path)
-                # 影片原本存在 backend/static/images 中
-                vid_src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "static", "images", vid_filename))
-                
-                # ACT 模型訓練用：將誤報影片統一存放至 label_studio_data/videos
-                target_vid_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "Fall", "label_studio_data", "videos"))
-                os.makedirs(target_vid_dir, exist_ok=True)
-                
-                if os.path.exists(vid_src_path):
-                    shutil.copy(vid_src_path, os.path.join(target_vid_dir, vid_filename))
-                    print(f"✅ [ACT 動作庫] 已將誤報難例影片自動複製至: {target_vid_dir}/{vid_filename}")
-
-        except Exception as copy_err:
-            print(f"⚠️ [MLOps 隔離庫] 快照或影片複製異常: {copy_err}")
+        copy_false_alarm_to_hard_negatives(event)
 
     db.commit()
 
@@ -263,10 +229,10 @@ def get_event_media(
 # 同一張 JWT，只是改插的位置；驗證邏輯用同一個 decode_access_token
 def get_user_from_query_token(token: Optional[str] = Query(None)):
     if not token:
-        return {"sub": "admin", "role": "admin", "company_id": 1}
+        raise HTTPException(status_code=401, detail="未提供 token")
     payload = decode_access_token(token)
     if payload is None:
-        return {"sub": "admin", "role": "admin", "company_id": 1}
+        raise HTTPException(status_code=401, detail="token 無效或過期")
     return payload
 
 
@@ -296,9 +262,9 @@ async def stream(current_user: dict = Depends(get_user_from_query_token)):
 
 
 # ════════════════════════════════════════════════════════
-# DELETE /events（測試工具：一鍵清空所有測試事件與歷史紀錄）
+# DELETE /events（測試工具：一鍵清空所有測試事件與歷史紀錄，需 admin 權限）
 # ════════════════════════════════════════════════════════
-@router.delete("/events", status_code=204)
+@router.delete("/events", status_code=204, dependencies=[Depends(require_admin)])
 def delete_all_events(db: Session = Depends(get_db)):
     db.query(DetectEvent).delete()
     db.commit()
@@ -309,11 +275,10 @@ def delete_all_events(db: Session = Depends(get_db)):
 # ════════════════════════════════════════════════════════
 # ⚡ 即時偵測廣播 (Live Detection SSE)
 # ════════════════════════════════════════════════════════
-import json
 latest_live_detection_data = {}
 live_detection_listeners = set()
 
-@router.post("/events/live-detection")
+@router.post("/events/live-detection", dependencies=[Depends(require_api_key)])
 async def post_live_detection(data: Dict[str, Any] = Body(...)):
     global latest_live_detection_data
     latest_live_detection_data = data
@@ -330,8 +295,9 @@ async def post_live_detection(data: Dict[str, Any] = Body(...)):
     return {"status": "ok"}
 
 @router.get("/events/live-detection/stream")
-async def live_detection_stream():
-
+async def live_detection_stream(
+    current_user: dict = Depends(get_user_from_query_token),
+):
     q = asyncio.Queue()
     live_detection_listeners.add(q)
     

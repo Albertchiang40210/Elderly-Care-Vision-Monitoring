@@ -2,7 +2,7 @@
 # 裝置（鏡頭）相關路由。前端「鏡頭清單」頁面的資料來源
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 try:
     from backend.core.database import get_db
@@ -38,7 +38,8 @@ def list_devices(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    devices = db.query(Device).order_by(Device.device_id).all()
+    # selectinload 一次撈完所有裝置的 location，避免 serialize_device 逐筆觸發延遲載入（N+1）
+    devices = db.query(Device).options(selectinload(Device.location)).order_by(Device.device_id).all()
     return [serialize_device(d) for d in devices]
 
 

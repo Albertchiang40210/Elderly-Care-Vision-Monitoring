@@ -1,7 +1,7 @@
 # backend/reports/router.py
 # 通報單路由：存（POST）與查（GET）。表單整包 JSON 保管，定義權在前端
 # 設計規格：backend/docs/superpowers/specs/2026-07-20-frontend-gap-endpoints-design.md
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -63,7 +63,7 @@ def create_report(
         report_type=body.report_type,
         form=body.form,
         created_by=current_user["sub"],  # 誰存的誰負責，從 JWT 記
-        created_at=datetime.now(),
+        created_at=datetime.now(timezone.utc),
     )
     db.add(report)
     db.commit()

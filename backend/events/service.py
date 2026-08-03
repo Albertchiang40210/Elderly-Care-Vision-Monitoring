@@ -1,7 +1,11 @@
 # backend/events/service.py
-# 事件「處理」核心：存 DB + 廣播。跟「入口」（POST /events、未來的 Kafka consumer）拆開，
+# 事件「處理」核心：存 DB + 廣播 + MLOps 難例管理。
+# 跟「入口」（POST /events、未來的 Kafka consumer）拆開，
 # Kafka 接上時直接呼叫 handle_incoming_event()，這裡零改動
 import asyncio
+import logging
+import os
+import shutil
 
 from sqlalchemy.orm import Session
 
@@ -143,3 +147,46 @@ def handle_incoming_event(db: Session, data: dict) -> dict:
     payload = serialize_event(event, device)
     pool.broadcast("event_created", payload)
     return payload
+
+
+logger = logging.getLogger(__name__)
+
+# ── MLOps 難例管理 ──────────────────────────────────────
+# 誤報判定時，自動將快照/影片複製至難例庫，供二審與模型重訓使用。
+# 從 router.py 的 verdict_event 抽出，保持路由薄、邏輯可複用。
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+def copy_false_alarm_to_hard_negatives(event: DetectEvent) -> None:
+    """將誤報事件的快照與影片複製至難例庫（best-effort，失敗只記 log 不擋流程）。"""
+    try:
+        # ── 快照 → Fall/active_learning_dataset/false_alarms/ ──
+        target_img_dir = os.path.join(_PROJECT_ROOT, "Fall", "active_learning_dataset", "false_alarms")
+        os.makedirs(target_img_dir, exist_ok=True)
+
+        if event.snapshot_path:
+            filename = os.path.basename(event.snapshot_path)
+            # 優先找 images/，找不到退 fall_evidences/
+            src_path = os.path.join(_PROJECT_ROOT, "Fall", "active_learning_dataset", "images", filename)
+            if not os.path.exists(src_path):
+                src_path = os.path.join(_PROJECT_ROOT, "Fall", "active_learning_dataset", "fall_evidences", filename)
+
+            if os.path.exists(src_path):
+                shutil.copy(src_path, os.path.join(target_img_dir, filename))
+                logger.info("✅ [MLOps 隔離庫] 已將誤報難例快照自動複製至: %s/%s", target_img_dir, filename)
+
+        # ── 影片 → Fall/label_studio_data/videos/ ──
+        if event.clip_path:
+            vid_filename = os.path.basename(event.clip_path)
+            vid_src_path = os.path.join(os.path.dirname(__file__), "..", "static", "images", vid_filename)
+            vid_src_path = os.path.abspath(vid_src_path)
+
+            target_vid_dir = os.path.join(_PROJECT_ROOT, "Fall", "label_studio_data", "videos")
+            os.makedirs(target_vid_dir, exist_ok=True)
+
+            if os.path.exists(vid_src_path):
+                shutil.copy(vid_src_path, os.path.join(target_vid_dir, vid_filename))
+                logger.info("✅ [ACT 動作庫] 已將誤報難例影片自動複製至: %s/%s", target_vid_dir, vid_filename)
+
+    except Exception:
+        logger.exception("⚠️ [MLOps 隔離庫] 快照或影片複製異常")
