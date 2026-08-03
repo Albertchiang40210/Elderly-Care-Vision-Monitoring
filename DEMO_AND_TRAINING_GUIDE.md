@@ -8,35 +8,22 @@
 
 要在評審或長官面前展示系統，您只需要把系統的核心引擎和畫面跑起來即可。請依序開啟終端機分頁執行：
 
-### 1. 喚醒所有背景大腦 (Docker 容器)
-這會一次把資料庫、Kafka 訊息佇列、Triton 推理伺服器、Label Studio 標註平台、ClearML 儀表板全部叫醒。
+### 1. 喚醒雲端 MLOps 後勤指揮中心 (基礎設施)
+這會一次把資料庫、Kafka 訊息佇列、Label Studio 標註平台、ClearML 儀表板與所有的主動學習背景監聽程式全部叫醒。
 ```bash
-cd Fall/tools
-docker-compose -f docker-compose-label.yml -f docker-compose-triton.yml -f docker-compose-clearml.yml -f docker-compose-kafka.yml up -d
-cd ../..
+./start_cloud.sh
 ```
 
-### 2. 啟動後端 API 神經樞紐
-接收 AI 傳來的跌倒警報，並儲存到資料庫。
+### 2. 啟動邊緣端攝影機與戰情室 (核心推論與網頁 UI)
+請開啟另一個終端機分頁，這會一鍵啟動前端戰情室、後端 API、串流中繼站以及 AI 推論引擎 (支援 GPU/CPU 自動切換)。
 ```bash
-cd backend
-# 啟動虛擬環境 (如果有)
-uvicorn main:app --reload --port 8000
+./start_edge.sh
 ```
 
-### 3. 啟動前端 UI 展示儀表板
-啟動讓長官看的精美監控畫面。
+### 3. 結束與關閉系統
+當 Demo 結束時，只需執行以下指令即可安全關閉所有背景程序與 Docker 容器：
 ```bash
-cd frontend
-npm run dev
-```
-
-### 4. 啟動攝影機 AI 追蹤眼 (核心推理)
-這支程式會打開鏡頭或讀取影片，並同時串聯三個 AI 模型開始抓人、抓骨架、判斷跌倒，最後發送 Discord 通知。
-```bash
-cd Fall
-# 啟動虛擬環境
-python tools/inference_test.py
+./stop_all.sh
 ```
 
 ---

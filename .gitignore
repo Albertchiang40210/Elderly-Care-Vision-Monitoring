@@ -67,3 +67,10 @@ Fall/tools/.clearml-logs-final/
 **/active_learning_split_dataset/
 **/active_learning_pose_split_dataset/
 **/label_studio_data/
+
+# 7. 忽略後端靜態圖片暫存與本地數據庫、執行檔
+backend/static/images/*.jpg
+backend/*.db
+go2rtc
+go2rtc.zip
+*.db

@@ -40,14 +40,14 @@ python Fall/tools/clearml_pose_train_pipeline.py
 
 請開啟 **兩個** 獨立的終端機視窗來配合操作：
 
-### 終端機 1 號：開啟 24 小時巡邏保全 (絕對不要關閉)
-開機後，請輸入以下指令並讓它在背景一直跑：
+### 終端機 1 號：開啟 24 小時巡邏保全與 MLOps 後台 (絕對不要關閉)
+開機後，請輸入以下指令並讓它在背景一直跑，它會自動開啟所有的 Docker 容器並啟動各項背景監聽程式：
 ```bash
-python Fall/tools/watchdog.py
+./start_cloud.sh
 ```
 
 💡 **這個腳本在背後做了什麼？**
-它是 24 小時常駐的鬧鐘。每 5 分鐘會自動幫您執行一次 SDK (`inference_to_labelstudio_sdk.py`)。它會捕捉攝影機拍到的新照片，利用現在的模型畫上 **AI 預標註草稿**，然後自動上傳到 Label Studio 網頁。您只要去網頁上把畫歪的框框修好，按下 Submit 就好！
+它會啟動 ClearML 煉丹爐、Label Studio 網頁等基礎設施。最重要的是它啟動了 24 小時常駐的鬧鐘 (`watchdog.py`)，每 5 分鐘會自動幫您捕捉新照片，並利用現在的模型畫上 **AI 預標註草稿**，上傳到 Label Studio。您只要去網頁上把畫歪的框框修好，按下 Submit 就好！
 
 ---
 
