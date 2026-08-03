@@ -129,8 +129,8 @@ class FallDetectorLogic:
                 except Exception:
                     pass
             
-            torso_is_horizontal = (body_angle is not None and body_angle <= 60.0)
-            body_is_wide = (box_aspect_ratio is not None and box_aspect_ratio >= 0.95)
+            torso_is_horizontal = (body_angle is not None and body_angle <= 45.0)
+            body_is_wide = (box_aspect_ratio is not None and box_aspect_ratio >= 1.2)
             is_physically_lying = torso_is_horizontal or body_is_wide
             
             if pose_was_updated:
@@ -139,7 +139,7 @@ class FallDetectorLogic:
                 else:
                     p_state["consecutive_fall_frames"] = 0
             
-            should_trigger_fall = p_state["consecutive_fall_frames"] >= 4
+            should_trigger_fall = p_state["consecutive_fall_frames"] >= 15
             recovered = False
             
             if should_trigger_fall:
@@ -177,18 +177,36 @@ class FallDetectorLogic:
                     _kp_2d.append([0.0, 0.0])
                     _kp_dict_list.append({"x": 0.0, "y": 0.0, "score": 0.0, "id": len(_kp_dict_list)})
 
+                # 計算衍生的 Action Confidence (跌倒動作模型信心度)
+                base_action_conf = 0.0
+                if body_angle is not None:
+                    # 身體角度越小(越接近水平)分數越高
+                    angle_score = max(0, (80.0 - body_angle) / 80.0) 
+                    base_action_conf = max(base_action_conf, angle_score)
+                if box_aspect_ratio is not None:
+                    # 寬高比越大(越平躺)分數越高
+                    ratio_score = min(1.0, box_aspect_ratio / 1.5) if box_aspect_ratio > 0.5 else 0
+                    base_action_conf = max(base_action_conf, ratio_score)
+                
+                # VLM Confidence 模擬 (如果有跌倒則模擬 VLM 的二次確認分數，正常則極低)
+                vlm_conf = 0.95 if should_trigger_fall else 0.05
+                if not should_trigger_fall and base_action_conf > 0.6:
+                    vlm_conf = 0.5 # 模糊地帶交由 VLM 判斷
+
                 persons_out_list.append({
                     "id": track_id,
                     "bbox": norm_bbox,
                     "conf": round(float(active_conf), 2),
+                    "action_conf": round(float(base_action_conf), 2),
+                    "vlm_conf": round(float(vlm_conf), 2),
                     "kps": _kp_2d,
                     "keypoints": _kp_2d,
                     "keypoints_detailed": _kp_dict_list,
                     "is_fall": bool(should_trigger_fall),
                     "new_fall_trigger": should_trigger_fall and not p_state.get("_last_vlm_triggered", False),
                     "recovered": recovered,
-                    "smooth_box": smooth_box,
-                    "smooth_kpts": smooth_kpts
+                    "smooth_box": smooth_box.tolist() if hasattr(smooth_box, "tolist") else smooth_box,
+                    "smooth_kpts": smooth_kpts.tolist() if hasattr(smooth_kpts, "tolist") else smooth_kpts
                 })
                 # Mark as triggered so we don't spam triggers
                 p_state["_last_vlm_triggered"] = should_trigger_fall

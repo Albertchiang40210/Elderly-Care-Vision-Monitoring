@@ -71,7 +71,7 @@ export const EVENT_CENTER_LIVE_FILTERS: EventFilter[] = ['all', 'in_progress', '
 
 // 逾時升級 UI、已升級篩選，皆待後端補齊 escalation 欄位後再實作。
 
-export type FalseReportLabel = '坐地' | '伸展' | '彎腰' | '攙扶' | '其他';
+export type FalseReportLabel = '坐下' | '蹲下' | '彎腰' | '走路' | '正常' | '其他';
 
 // ── 生成通報單（IA：生成通報單頁）───────────────────────────────────────
 // 官方長照事件通報單欄位。選項清單集中此處，禁止散落各元件硬編碼。

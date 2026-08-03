@@ -11,8 +11,8 @@ import { HazardDetail } from './pages/HazardDetail';
 import { History } from './pages/History';
 import { HistoryEventDetail } from './pages/HistoryEventDetail';
 import { Home } from './pages/Home';
+import { DataAnalysis } from './pages/DataAnalysis';
 import { Login } from './pages/Login';
-import { Monitoring } from './pages/Monitoring';
 import { ReportFormPage } from './pages/ReportFormPage';
 import { ReportPreview } from './pages/ReportPreview';
 import { ReportGeneration } from './pages/ReportGeneration';
@@ -47,7 +47,7 @@ function App() {
         }
       >
         <Route path="/" element={<Home />} />
-        <Route path="/monitoring" element={<Monitoring />} />
+        <Route path="/analysis" element={<DataAnalysis />} />
         <Route path="/events" element={<EventCenter />} />
         <Route path="/events/:id" element={<EventDetail />} />
         <Route path="/hazards/:id" element={<HazardDetail />} />

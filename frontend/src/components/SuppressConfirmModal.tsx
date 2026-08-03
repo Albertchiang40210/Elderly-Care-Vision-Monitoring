@@ -4,7 +4,7 @@ import { DEMO_VIDEO_SRC } from './FullScreenAlert';
 import { useEventClipUrl } from '../hooks/useEventClipUrl';
 import type { CareEvent, FalseReportLabel } from '../types';
 
-const FALSE_REPORT_LABELS: FalseReportLabel[] = ['坐地', '伸展', '彎腰', '攙扶', '其他'];
+const FALSE_REPORT_LABELS: FalseReportLabel[] = ['坐下', '蹲下', '彎腰', '走路', '正常', '其他'];
 
 interface SuppressConfirmModalProps {
   event: CareEvent;
@@ -21,7 +21,7 @@ export function SuppressConfirmModal({ event, onConfirm, onBack }: SuppressConfi
 
   const { clipUrl, loading: clipLoading } = useEventClipUrl(event.id);
   const videoSrc = clipUrl ?? DEMO_VIDEO_SRC;
-  const canConfirm = (videoEnded || videoError) && label !== null && !submitting;
+  const canConfirm = label !== null && !submitting;
 
   async function handleConfirm() {
     if (!label || !canConfirm) return;
@@ -100,11 +100,8 @@ export function SuppressConfirmModal({ event, onConfirm, onBack }: SuppressConfi
           >
             返回警示
           </button>
+          <p className="text-xs text-[var(--text-muted)]">請選擇誤報類型後，即可送出。</p>
         </div>
-
-        {!clipLoading && !videoEnded && !videoError && (
-          <p className="text-xs text-[var(--text-muted)]">請完整播放影片一次以解鎖「確認誤報並關閉」。</p>
-        )}
       </div>
     </div>,
     document.body,

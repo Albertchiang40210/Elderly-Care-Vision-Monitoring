@@ -93,12 +93,17 @@ class Staff(Base):
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.company_id"), nullable=False)
 
 
+def generate_event_id() -> str:
+    now = datetime.now().strftime("%Y%m%d-%H%M")
+    short_uuid = str(uuid.uuid4()).split("-")[0].upper()
+    return f"EVT-{now}-{short_uuid}"
+
 class DetectEvent(Base):  # 跌倒事件主表
     __tablename__ = "detect_events"
 
     # UUID 存成 36 字元字串，SQLite（測試）和 PostgreSQL（正式）都通用
     event_id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+        String(36), primary_key=True, default=generate_event_id
     )
     device_id: Mapped[int] = mapped_column(ForeignKey("devices.device_id"), nullable=False)
     # 事件發生當下所在區域，寫入時從裝置抄一份凍住，之後裝置搬走也不動（保護歷史紀錄）

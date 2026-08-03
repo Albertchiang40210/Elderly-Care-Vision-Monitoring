@@ -109,7 +109,7 @@ export function EventDetail() {
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-5 shadow-sm">
           <h2 className="mb-2 text-base font-semibold text-[var(--text-primary)]">事件資訊</h2>
           <InfoRow label="事件編號" value={event.id} />
-          <InfoRow label="事件" value={eventTypeLabel} />
+          <InfoRow label="事件" value={isFalseAlarm ? `${eventTypeLabel}（誤報）` : eventTypeLabel} />
           <InfoRow label="事發地點" value={`${event.camera.zone}（${event.camera.name}）`} />
           <InfoRow label="事發時間" value={formatDateTime(event.occurred_at)} />
           <InfoRow label="事件狀態" value={<EventStatusBadge event={event} now={now} />} />

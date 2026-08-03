@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import CameraStream from '../components/CameraStream';
 import { Link } from 'react-router-dom';
 import { getCameras } from '../api/cameras';
+import { getKpiSummary } from '../api/kpi';
+import type { KpiSummary } from '../types';
 import { DevTestPanel } from '../components/DevTestPanel'; // DEV-TEST：測試按鈕面板，移除測試功能時連同下方使用處一併刪除
 import { MonitorIcon } from '../components/icons';
 import { useEvents } from '../hooks/eventsContext';
@@ -108,6 +110,7 @@ function toPendingLogEntry(event: CareEvent): AlertLogEntry {
 export function Home() {
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<number | null>(null);
+  const [kpiSummary, setKpiSummary] = useState<KpiSummary | null>(null);
   const { events, alertLog, confirmedAlerts, reopenAlert, hazardEvents } = useEvents();
 
   // 合併顯示：alertLog（潛在危險偵測）＋ 現算的「待處理」
@@ -125,6 +128,7 @@ export function Home() {
       // 預設帶入第一支鏡頭，讓即時影像一載入就有選定畫面。
       setSelectedCameraId((prev) => prev ?? list[0]?.id ?? null);
     });
+    getKpiSummary().then((data) => setKpiSummary(data));
   }, []);
 
   const unresolvedCount = events.filter((e) => e.status !== 'resolved').length;
@@ -154,8 +158,8 @@ export function Home() {
             <CameraSelect cameras={cameras} value={selectedCameraId} onChange={setSelectedCameraId} />
           </div>
 
-          {/* 三張統計卡：未結報事件／監控中鏡頭／潛在危險，並排於鏡頭下方；上下 7:3 分割 */}
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+          {/* 統計卡區塊：調整為 2x2 網格以容納四張卡片 */}
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
             {/* 未結報事件：全站黑色化改版下唯一保留的品牌綠（--highlight），作為首頁最醒目的 CTA。 */}
             <div className="flex min-h-[210px] flex-col rounded-2xl bg-[var(--highlight)] p-6 text-white shadow-sm">
               <div className="flex flex-[7] flex-col justify-center">
@@ -198,16 +202,16 @@ export function Home() {
               className={`flex min-h-[210px] flex-col rounded-2xl p-6 shadow-sm ${
                 hazardCount > 0
                   ? 'bg-[var(--danger)] text-white'
-                  : 'border border-[var(--border)] bg-[var(--bg-surface-2)] text-[var(--text-secondary)]'
+                  : 'bg-[var(--bg-surface-2)] text-[var(--text-primary)] border border-[var(--border)]'
               }`}
             >
               <div className="flex flex-[7] flex-col justify-center">
-                <p className={hazardCount > 0 ? 'text-base text-white/70' : 'text-base text-[var(--text-secondary)]'}>
+                <p className={`text-base ${hazardCount > 0 ? 'text-white/70' : 'text-[var(--text-muted)]'}`}>
                   潛在危險
                 </p>
                 <p
                   className={`mt-1 text-6xl font-semibold leading-none ${
-                    hazardCount > 0 ? 'text-white' : 'text-[var(--text-muted)]'
+                    hazardCount > 0 ? 'text-white' : 'text-[var(--text-primary)]'
                   }`}
                 >
                   {hazardCount}
@@ -222,7 +226,7 @@ export function Home() {
                   className={`shrink-0 rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
                     hazardCount > 0
                       ? 'bg-white text-[var(--danger)] hover:opacity-90 focus-visible:ring-white focus-visible:ring-offset-[var(--danger)]'
-                      : 'border border-[var(--text-secondary)] text-[var(--text-secondary)] hover:bg-[var(--brand-soft)] focus-visible:ring-[var(--brand)]'
+                      : 'border border-[var(--border)] bg-white text-[var(--text-primary)] hover:bg-[var(--bg-surface)] focus-visible:ring-[var(--brand)] focus-visible:ring-offset-[var(--bg-surface-2)]'
                   }`}
                 >
                   排除危險

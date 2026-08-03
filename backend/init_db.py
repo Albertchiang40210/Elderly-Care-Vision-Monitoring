@@ -34,7 +34,7 @@ def seed_demo_data(db):
     else:
         print("預設公司已存在，略過")
 
-    locations = ["301 號病房", "302 號病房", "303 號病房", "304 號病房"]
+    locations = ["301 病房", "走廊", "交誼廳"]
     for loc_name in locations:
         if db.query(Location).filter_by(location_name=loc_name).first() is None:
             db.add(Location(location_name=loc_name, company_id=1))
@@ -44,10 +44,10 @@ def seed_demo_data(db):
     
     # 🎯 補齊 Device mapping，確保對齊邊緣端推播的 Room_301_Bed 與鏡頭 1
     target_devices = [
-        {"device_id": 1, "device_name": "鏡頭 1 (301 號病房)", "location_name": "301 號病房"},
-        {"device_id": 2, "device_name": "鏡頭 2 (302 號病房)", "location_name": "302 號病房"},
-        {"device_id": 3, "device_name": "鏡頭 3 (303 號病房)", "location_name": "303 號病房"},
-        {"device_id": 4, "device_name": "鏡頭 4 (304 號病房)", "location_name": "304 號病房"},
+        {"device_id": 1, "device_name": "301 病房 - 床位 A", "location_name": "301 病房"},
+        {"device_id": 2, "device_name": "301 病房 - 床位 B", "location_name": "301 病房"},
+        {"device_id": 3, "device_name": "走廊監視器 - 北側", "location_name": "走廊"},
+        {"device_id": 4, "device_name": "交誼廳 - 主視角", "location_name": "交誼廳"},
     ]
     for dev in target_devices:
         if db.query(Device).filter_by(device_id=dev["device_id"]).first() is None:

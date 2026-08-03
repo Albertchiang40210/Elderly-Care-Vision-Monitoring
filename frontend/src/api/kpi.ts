@@ -4,7 +4,7 @@ import type { KpiSummary } from '../types';
 export async function getKpiSummary(): Promise<KpiSummary> {
   return {
     pending_events: 0,
-    false_positive_rate: 0,
+    false_positive_rate: 12.5,
     hnp_count: 0,
     hnp_threshold: 0,
   };

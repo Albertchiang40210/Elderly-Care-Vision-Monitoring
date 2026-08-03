@@ -13,14 +13,6 @@ import base64
 import subprocess
 import requests as _requests
 
-try:
-    import tritonclient.grpc as grpcclient  # 🚀 [Triton 整合] 引入 Triton gRPC 套件
-except ImportError:
-    grpcclient = None
-
-from modules.fall_detector import get_body_angle_jit, PersonTrackerEMA, FallDetectorLogic
-from modules.triton_parser import MockBox, MockResults, MockPoseKeypoints, MockPoseBoxes, MockPoseResults, parse_triton_yolo_pose
-
 # =========================================================================
 # 🧭 自動修正 Python 模組搜尋路徑
 # =========================================================================
@@ -28,6 +20,14 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)  # 從 tools/ 往上推一層到 Fall/
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
+
+try:
+    import tritonclient.grpc as grpcclient  # 🚀 [Triton 整合] 引入 Triton gRPC 套件
+except ImportError:
+    grpcclient = None
+
+from modules.fall_detector import get_body_angle_jit, PersonTrackerEMA, FallDetectorLogic
+from modules.triton_parser import MockBox, MockResults, MockPoseKeypoints, MockPoseBoxes, MockPoseResults, parse_triton_yolo_pose
 
 # =========================================================================
 # 🔑 全域指定唯一合法 API KEY (物理強注，徹底解決 HTTP 401 拒絕問題)
@@ -91,7 +91,8 @@ try:
             triton_client = None
     else:
         triton_client = None
-except Exception:
+except Exception as e:
+    print("TRITON ERROR:", e)
     triton_client = None
 
 # =========================================================================
@@ -155,15 +156,65 @@ _detection_bg_thread.start()
 # =========================================================================
 # 📹 核心：多鏡頭 Edge Worker (精簡純淨版：姿態跌倒 + 模組 G 環境巡檢)
 # =========================================================================
+def _async_process_video(frames, video_path, snapshot_path, cam_id, num_id, prod, export_fps):
+    print(f"\n🎬 [{cam_id}] 異步背景合成前後 10 秒影片 ({len(frames)} 幀, 寫入幀率: {export_fps:.1f} FPS)...")
+    try:
+        if not frames: return
+        frame_w, frame_h = 640, 360
+        temp_raw_path = video_path.replace(".mp4", "_raw.mp4")
+        # 先用 OpenCV 快速寫入 mp4v
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        
+        out = cv2.VideoWriter(temp_raw_path, fourcc, float(export_fps), (frame_w, frame_h))
+        for f in frames:
+            out.write(cv2.resize(f, (frame_w, frame_h)))
+        out.release()
+        
+        # 再呼叫 FFmpeg 進行網頁標準化轉碼 (保證 Safari/iOS 絕對能播)
+        import subprocess
+        import os
+        temp_final_path = video_path.replace(".mp4", "_final_temp.mp4")
+        ffmpeg_cmd = [
+            "ffmpeg", "-y", "-i", temp_raw_path,
+            "-c:v", "libx264", "-preset", "fast",
+            "-profile:v", "baseline", "-level", "3.0",
+            "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+            temp_final_path
+        ]
+        subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        if os.path.exists(temp_final_path):
+            os.rename(temp_final_path, video_path)
+        
+        if os.path.exists(temp_raw_path):
+            os.remove(temp_raw_path)
+            
+        print(f"✅ [{cam_id}] 10 秒片段影片成功歸檔 (Web 完美相容)！")
+    except Exception as async_err:
+        print(f"❌ [{cam_id}] 背景處理影片失敗: {async_err}")
+
 def camera_worker(camera_id, video_source):
-    global producer, device, yolo_pose_model, output_frames, frames_lock, triton_client
+    global producer, device, output_frames, frames_lock, triton_client, pose_model_name
+    
+    from ultralytics import YOLO
+    local_yolo_pose_model = YOLO(pose_model_name)
+    try:
+        local_yolo_pose_model.to(device)
+    except: pass
     
     # 🎯 檢查 video_source 是否為數字 (例如 "0" 或 "1")，如果是，則轉換為整數 (供 OpenCV 直接讀取本地實體/虛擬鏡頭)
     if isinstance(video_source, str) and video_source.isdigit():
         video_source = int(video_source)
 
     print(f"🚀 鏡頭頻道 [{camera_id}] 啟動拉流：{video_source}")
-    demo_video_path = os.path.join(PROJECT_ROOT, "test_demo", "test1.mp4")
+    video_map = {
+        "cam_0": "test1.mp4",
+        "cam_1": "test2.mp4",
+        "cam_2": "test3.mp4",
+        "cam_3": "test4.mp4"
+    }
+    demo_video_name = video_map.get(camera_id, "test1.mp4")
+    demo_video_path = os.path.join(PROJECT_ROOT, "test_demo", demo_video_name)
     
     cap = None
     if isinstance(video_source, str) and video_source.startswith("rtsp://"):
@@ -221,13 +272,29 @@ def camera_worker(camera_id, video_source):
     fps_calc_counter = 0
     measured_fps = 0.0
     
-    numeric_id = 1
+    if camera_id == "cam_0":
+        numeric_id = 1
+        location_str = "301 病房"
+    elif camera_id == "cam_1":
+        numeric_id = 2
+        location_str = "301 病房"
+    elif camera_id == "cam_2":
+        numeric_id = 3
+        location_str = "走廊"
+    elif camera_id == "cam_3":
+        numeric_id = 4
+        location_str = "交誼廳"
+    else:
+        numeric_id = 1
+        location_str = "301 病房"
     
     results_pose = None
     last_annotated_frame = None
     vlm_report = "Waiting for alert..."
+    last_alert_time = 0.0
 
-    # 🎯 多人追蹤狀態字典 { track_id: dict }
+    # 🎯 多人追蹤狀態與跌倒偵測邏輯處理器 (各鏡頭獨立)
+    detector = None
     person_states = {}
 
     rtsp_writer_proc = None
@@ -288,19 +355,25 @@ def camera_worker(camera_id, video_source):
         ret, frame = cap.read()
         
         if not ret:
+            if is_recording_post and 'final_video_path' in locals():
+                is_recording_post = False
+                full_10_sec_frames = list(pre_video_buffer) + list(post_video_buffer)
+                actual_export_fps = measured_fps if measured_fps > 5.0 else 15.0
+                threading.Thread(
+                    target=_async_process_video,
+                    args=(full_10_sec_frames, final_video_path, final_snapshot_path, camera_id, numeric_id, producer, actual_export_fps),
+                    daemon=True
+                ).start()
+                
             if is_using_demo_video:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                break  # 影片結束，不要重播
             else:
-                if os.path.exists(demo_video_path):
-                    cap.release()
-                    cap = cv2.VideoCapture(demo_video_path)
-                    is_using_demo_video = True
-                else:
-                    time.sleep(1.0)
+                print(f"❌ [{camera_id}] 影像流已結束")
+                break
             
             # 重製計數器，防止迴圈重新開始時殘留狀態
-            if hasattr(camera_worker, "_detector"):
-                camera_worker._detector.reset_states()
+            if detector is not None:
+                detector.reset_states()
 
             if not is_recording_post:
                 post_video_buffer.clear()
@@ -328,7 +401,7 @@ def camera_worker(camera_id, video_source):
             
             if not yolo_pose_success:
                 # 使用 ByteTrack 多人追蹤
-                results_pose = yolo_pose_model.track(frame, persist=True, tracker="bytetrack.yaml", verbose=False, conf=0.08, device=device)
+                results_pose = local_yolo_pose_model.track(frame, persist=True, tracker="bytetrack.yaml", verbose=False, conf=0.08, device=device)
 
             last_annotated_frame = frame.copy()
 
@@ -336,10 +409,10 @@ def camera_worker(camera_id, video_source):
 
         # ─── 🎯【多目標追蹤與跌倒判定】───────────────────
         # 初始化分離的業務邏輯處理器
-        if not hasattr(camera_worker, "_detector"):
-            camera_worker._detector = FallDetectorLogic(img_w=img_w, img_h=img_h)
+        if detector is None:
+            detector = FallDetectorLogic(img_w=img_w, img_h=img_h)
             
-        persons_out_list, any_fall_triggered_this_frame = camera_worker._detector.process_inference_results(results_pose, pose_was_updated)
+        persons_out_list, any_fall_triggered_this_frame = detector.process_inference_results(results_pose, pose_was_updated)
         
         for p_data in persons_out_list:
             track_id = p_data["id"]
@@ -348,27 +421,15 @@ def camera_worker(camera_id, video_source):
             smooth_box = p_data.get("smooth_box")
             smooth_kpts = p_data.get("smooth_kpts")
             
-            # 繪製單人邊框與骨架
+            # 繪製單人邊框與骨架 (已移除 OpenCV 原生繪製，全權交給前端 Canvas 繪製以避免重疊與座標錯位)
+            # 確保原始影片乾淨無瑕疵，方便日後做醫療或法庭證據回放
             color = (0, 0, 255) if should_trigger_fall else (0, 255, 0)
             if smooth_box is not None:
                 try:
                     bx1, by1 = int(float(smooth_box[0])), int(float(smooth_box[1]))
-                    bx2, by2 = int(float(smooth_box[2])), int(float(smooth_box[3]))
-                    cv2.rectangle(annotated_frame, (bx1, by1), (bx2, by2), color, 2)
+                    # 我們依然可以在畫面上保留小小的 ID 標籤，方便 debug，但不畫框和骨架
                     p_label = f"ID:{track_id} {active_conf:.2f}"
                     cv2.putText(annotated_frame, p_label, (bx1, max(by1 - 8, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA)
-                    
-                    if smooth_kpts is not None and len(smooth_kpts) >= 17:
-                        skeleton_connections = [(0,1),(0,2),(1,3),(2,4),(5,6),(5,7),(7,9),(6,8),(8,10),(5,11),(6,12),(11,12),(11,13),(13,15),(12,14),(14,16)]
-                        for a, b in skeleton_connections:
-                            x1, y1 = int(float(smooth_kpts[a][0])), int(float(smooth_kpts[a][1]))
-                            x2, y2 = int(float(smooth_kpts[b][0])), int(float(smooth_kpts[b][1]))
-                            if x1 > 0 and y1 > 0 and x2 > 0 and y2 > 0:
-                                cv2.line(annotated_frame, (x1, y1), (x2, y2), (255, 229, 0), 2)
-                        for kp in smooth_kpts:
-                            kx, ky = int(float(kp[0])), int(float(kp[1]))
-                            if kx > 0 and ky > 0:
-                                cv2.circle(annotated_frame, (kx, ky), 5, (0, 221, 255), -1)
                 except Exception:
                     pass
                     
@@ -378,72 +439,84 @@ def camera_worker(camera_id, video_source):
                 
             # ⚡ 跌倒通報邏輯 (獨立針對每個 track_id)
             if p_data.get("new_fall_trigger"):
-                if not is_recording_post:
-                    is_recording_post = True
-                    post_frame_count = 0
-                    post_video_buffer = []
-                    
-                    vlm_save_dir = os.path.join(os.path.dirname(PROJECT_ROOT), "backend", "static", "images")
-                    os.makedirs(vlm_save_dir, exist_ok=True)
-                    current_time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
-                    video_name = f"fall_clip_{camera_id}_{current_time_str}.mp4"
-                    final_video_path = os.path.join(vlm_save_dir, video_name)
-                else:
-                    if 'current_time_str' not in locals():
-                        current_time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
-                    if 'final_video_path' not in locals():
-                        video_name = f"fall_clip_{camera_id}_{current_time_str}.mp4"
-                        vlm_save_dir = os.path.join(os.path.dirname(PROJECT_ROOT), "backend", "static", "images")
-                        final_video_path = os.path.join(vlm_save_dir, video_name)
-
-                snapshot_name = f"snapshot_{camera_id}_ID{track_id}_{current_time_str}.jpg"
-                final_snapshot_path = os.path.join(vlm_save_dir, snapshot_name)
-                cv2.imwrite(final_snapshot_path, annotated_frame)
-                
-                local_snap_url = f"/images/{os.path.basename(final_snapshot_path)}"
-                local_vid_url = f"/images/{os.path.basename(final_video_path)}"
-                
-                instant_payload = {
-                    "device_id": numeric_id,
-                    "camera_id": camera_id,
-                    "location": "Room_301_Bed",
-                    "event_type": "fall",
-                    "person_id": track_id,
-                    "clip_path": local_vid_url,
-                    "detected_at": datetime.now().isoformat(),
-                    "snapshot_path": local_snap_url,
-                    "image_filename": final_snapshot_path,
-                    "yolo_score": round(float(active_conf), 2),
-                    "vlm_summary": f"【緊急通報】邊緣 AI 即時偵測到長者 (ID:{track_id}) 跌倒！請護理人員手動處置。"
-                }
-
-                if active_conf >= 0.8:
+                # 計算中心點
+                cx, cy = 0, 0
+                if smooth_box is not None:
                     try:
-                        import requests
-                        headers = {"X-API-Key": VALID_API_KEY, "Content-Type": "application/json"}
-                        res = requests.post("http://localhost:8000/events", json=instant_payload, headers=headers, timeout=2.0)
-                        if res.status_code in [200, 201]:
-                            print(f"⚡ [{camera_id}] (ID:{track_id}) 【秒級即時告警】跌倒通知已 0 延遲轟入後端！")
+                        cx = (float(smooth_box[0]) + float(smooth_box[2])) / 2
+                        cy = (float(smooth_box[1]) + float(smooth_box[3])) / 2
                     except Exception:
                         pass
-                else:
-                    if producer is not None:
-                        instant_payload["vlm_summary"] = None
-                        instant_payload["status"] = "PENDING_VLM_ROUTE"
+                
+                # 鏡頭全局冷卻檢查 (30秒內同一支鏡頭只發送一次警報)
+                current_time = time.time()
+                is_cooldown = (current_time - last_alert_time <= 30.0)
+                        
+                if not is_cooldown:
+                    last_alert_time = current_time
+                    if not is_recording_post:
+                        is_recording_post = True
+                        post_frame_count = 0
+                        post_video_buffer = []
+                        
+                        vlm_save_dir = os.path.join(os.path.dirname(PROJECT_ROOT), "backend", "static", "images")
+                        os.makedirs(vlm_save_dir, exist_ok=True)
+                        current_time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+                        video_name = f"fall_clip_{camera_id}_{current_time_str}.mp4"
+                        final_video_path = os.path.join(vlm_save_dir, video_name)
+                    else:
+                        if 'current_time_str' not in locals():
+                            current_time_str = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+                        if 'final_video_path' not in locals():
+                            video_name = f"fall_clip_{camera_id}_{current_time_str}.mp4"
+                            vlm_save_dir = os.path.join(os.path.dirname(PROJECT_ROOT), "backend", "static", "images")
+                            final_video_path = os.path.join(vlm_save_dir, video_name)
+
+                    snapshot_name = f"snapshot_{camera_id}_ID{track_id}_{current_time_str}.jpg"
+                    final_snapshot_path = os.path.join(vlm_save_dir, snapshot_name)
+                    cv2.imwrite(final_snapshot_path, annotated_frame)
+                    
+                    local_snap_url = f"/images/{os.path.basename(final_snapshot_path)}"
+                    local_vid_url = f"/images/{os.path.basename(final_video_path)}"
+                    
+                    instant_payload = {
+                        "device_id": numeric_id,
+                        "camera_id": camera_id,
+                        "location": location_str,
+                        "event_type": "fall",
+                        "person_id": track_id,
+                        "clip_path": local_vid_url,
+                        "detected_at": datetime.now().isoformat(),
+                        "snapshot_path": local_snap_url,
+                        "image_filename": final_snapshot_path,
+                        "yolo_score": round(float(active_conf), 2),
+                        "vlm_summary": f"【緊急通報】邊緣 AI 即時偵測到長者 (ID:{track_id}) 跌倒！請護理人員手動處置。"
+                    }
+
+                    if active_conf >= 0.8:
                         try:
-                            producer.send('nursing-home-alerts', value=instant_payload)
-                            producer.flush()
-                            print(f"🧠 [{camera_id}] (ID:{track_id}) 跌倒信心偏低，送交 VLM 二次判斷！")
+                            import requests
+                            headers = {"X-API-Key": VALID_API_KEY, "Content-Type": "application/json"}
+                            res = requests.post("http://localhost:8000/events", json=instant_payload, headers=headers, timeout=2.0)
+                            if res.status_code in [200, 201]:
+                                print(f"⚡ [{camera_id}] (ID:{track_id}) 【秒級即時告警】跌倒通知已 0 延遲轟入後端！")
                         except Exception:
                             pass
+                    else:
+                        if producer is not None:
+                            instant_payload["vlm_summary"] = None
+                            instant_payload["status"] = "PENDING_VLM_ROUTE"
+                            try:
+                                producer.send('nursing-home-alerts', value=instant_payload)
+                                producer.flush()
+                                print(f"🧠 [{camera_id}] (ID:{track_id}) 跌倒信心偏低，送交 VLM 二次判斷！")
+                            except Exception:
+                                pass
 
         # 發送繪圖 JSON 給前端
         if persons_out_list or frame_count % 10 == 0:
             try:
                 _detection_queue.put_nowait({
-                    "1": persons_out_list, 
-                    "Room_301_Bed": persons_out_list,
-                    "persons": persons_out_list,
                     camera_id: persons_out_list,
                     "backend_fps": round(measured_fps, 2)
                 })
@@ -461,46 +534,13 @@ def camera_worker(camera_id, video_source):
             is_recording_post = False
             full_10_sec_frames = list(pre_video_buffer) + post_video_buffer
             
-            def _async_process_video(frames, video_path, snapshot_path, cam_id, num_id, prod):
-                print(f"\n🎬 [{cam_id}] 異步背景合成前後 10 秒影片 ({len(frames)} 幀)...")
-                try:
-                    if not frames: return
-                    frame_w, frame_h = 640, 360
-                    temp_raw_path = video_path.replace(".mp4", "_raw.mp4")
-                    # 先用 OpenCV 快速寫入 mp4v
-                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                    out = cv2.VideoWriter(temp_raw_path, fourcc, fps, (frame_w, frame_h))
-                    for f in frames:
-                        out.write(cv2.resize(f, (frame_w, frame_h)))
-                    out.release()
-                    
-                    # 再呼叫 FFmpeg 進行網頁標準化轉碼 (保證 Safari/iOS 絕對能播)
-                    import subprocess
-                    import os
-                    temp_final_path = video_path.replace(".mp4", "_final_temp.mp4")
-                    ffmpeg_cmd = [
-                        "ffmpeg", "-y", "-i", temp_raw_path,
-                        "-c:v", "libx264", "-preset", "fast",
-                        "-profile:v", "baseline", "-level", "3.0",
-                        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-                        temp_final_path
-                    ]
-                    subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    
-                    if os.path.exists(temp_final_path):
-                        os.rename(temp_final_path, video_path)
-                    
-                    if os.path.exists(temp_raw_path):
-                        os.remove(temp_raw_path)
-                        
-                    print(f"✅ [{cam_id}] 10 秒片段影片成功歸檔 (Web 完美相容)！")
-                except Exception as async_err:
-                    print(f"❌ [{cam_id}] 背景處理影片失敗: {async_err}")
 
             if 'final_video_path' in locals():
+                actual_export_fps = measured_fps if measured_fps > 5.0 else 15.0
+                
                 threading.Thread(
                     target=_async_process_video,
-                    args=(full_10_sec_frames, final_video_path, final_snapshot_path, camera_id, numeric_id, producer),
+                    args=(full_10_sec_frames, final_video_path, final_snapshot_path, camera_id, numeric_id, producer, actual_export_fps),
                     daemon=True
                 ).start()
 

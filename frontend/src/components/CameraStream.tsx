@@ -60,8 +60,12 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控', streamId
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
-        const parsedPersons = data[streamId] || data['1'] || data['Room_301_Bed'] || data.persons || (Object.values(data).find(v => Array.isArray(v))) || [];
-        personsRef.current = Array.isArray(parsedPersons) ? parsedPersons : [];
+        // 只抓取屬於自己這支攝影機的資料，避免吃到其他攝影機推送的辨識結果
+        const parsedPersons = data[streamId];
+        // 只有當該畫面確實有資料時才更新，否則保持上一次的偵測結果或空陣列
+        if (parsedPersons !== undefined) {
+          personsRef.current = Array.isArray(parsedPersons) ? parsedPersons : [];
+        }
         if (data.backend_fps !== undefined) {
           aiFpsRef.current = data.backend_fps;
         }
@@ -130,24 +134,20 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控', streamId
         const labelWidth = textMetrics.width + 10;
         const labelHeight = 20;
         
-        // 優先置於畫框上方，若靠頂部邊界才放框內
         const labelY = ry1 - labelHeight >= 0 ? ry1 - labelHeight : ry1;
 
-        // 實心彩色背景標籤
         ctx.fillStyle = boxColor;
         ctx.fillRect(rx1, labelY, labelWidth, labelHeight);
-
-        // 黑色粗體文字
         ctx.fillStyle = '#000000';
         ctx.textBaseline = 'middle';
         ctx.fillText(labelText, rx1 + 5, labelY + labelHeight / 2);
 
-        // 2. 外框 Bounding Box (2px 清晰極簡線寬，不干擾視野)
+        // 2. 外框 Bounding Box
         ctx.strokeStyle = boxColor;
         ctx.lineWidth = 2;
         ctx.strokeRect(rx1, ry1, bw, bh);
 
-        // 4. 骨架關鍵點 & 連線 (100% 強效渲染)
+        // 4. 骨架關鍵點 & 連線 (保留前端高畫質渲染選項)
         const kpts = p.kps || p.keypoints;
         if (showSkeleton && kpts && kpts.length >= 17) {
           const getPos = (pt: any): [number, number] => {

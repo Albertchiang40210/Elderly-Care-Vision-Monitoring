@@ -7,6 +7,7 @@ import {
   HexagonLogoIcon,
   HomeIcon,
   MonitorIcon,
+  ChartIcon,
   BellIcon,
   SparklesIcon,
   ClockIcon,
@@ -53,7 +54,7 @@ function NavGroupLabel({ children }: { children: string }) {
 
 const MAIN_NAV: { to: string; label: string; exact?: boolean; icon: IconComponent }[] = [
   { to: '/', label: '首頁', exact: true, icon: HomeIcon },
-  { to: '/monitoring', label: '即時監控', icon: MonitorIcon },
+  { to: '/analysis', label: '數據分析', icon: ChartIcon },
   { to: '/events', label: '事件中心', icon: BellIcon },
 ];
 

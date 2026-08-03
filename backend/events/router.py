@@ -167,22 +167,37 @@ async def verdict_event(
         event.verdict_by = operator
         event.resolved_by = operator
 
-        # 🚀 [MLOps 自動化閉環] 自動複製誤報快照至 false_alarms 難例庫，觸發二審與大腦強化重訓
+        # 🚀 [MLOps 自動化閉環] 自動複製誤報快照與影片至難例庫，觸發二審與大腦強化重訓
         try:
             import shutil
+            target_img_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "Fall", "active_learning_dataset", "false_alarms"))
+            os.makedirs(target_img_dir, exist_ok=True)
+            
             if event.snapshot_path:
                 filename = os.path.basename(event.snapshot_path)
                 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "Fall", "active_learning_dataset", "images", filename))
                 if not os.path.exists(src_path):
                     src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "Fall", "active_learning_dataset", "fall_evidences", filename))
                 
-                target_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "Fall", "active_learning_dataset", "false_alarms"))
-                os.makedirs(target_dir, exist_ok=True)
                 if os.path.exists(src_path):
-                    shutil.copy(src_path, os.path.join(target_dir, filename))
-                    print(f"✅ [MLOps 隔離庫] 已將誤報難例快照自動複製至: {target_dir}/{filename}")
+                    shutil.copy(src_path, os.path.join(target_img_dir, filename))
+                    print(f"✅ [MLOps 隔離庫] 已將誤報難例快照自動複製至: {target_img_dir}/{filename}")
+
+            if event.clip_path:
+                vid_filename = os.path.basename(event.clip_path)
+                # 影片原本存在 backend/static/images 中
+                vid_src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "static", "images", vid_filename))
+                
+                # ACT 模型訓練用：將誤報影片統一存放至 label_studio_data/videos
+                target_vid_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "Fall", "label_studio_data", "videos"))
+                os.makedirs(target_vid_dir, exist_ok=True)
+                
+                if os.path.exists(vid_src_path):
+                    shutil.copy(vid_src_path, os.path.join(target_vid_dir, vid_filename))
+                    print(f"✅ [ACT 動作庫] 已將誤報難例影片自動複製至: {target_vid_dir}/{vid_filename}")
+
         except Exception as copy_err:
-            print(f"⚠️ [MLOps 隔離庫] 快照複製異常: {copy_err}")
+            print(f"⚠️ [MLOps 隔離庫] 快照或影片複製異常: {copy_err}")
 
     db.commit()
 

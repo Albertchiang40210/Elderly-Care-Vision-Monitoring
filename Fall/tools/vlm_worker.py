@@ -119,16 +119,16 @@ def package_active_learning_sample(img_path, camera_id, rtdetr_box_data, vlm_inf
             if os.path.abspath(img_path) != os.path.abspath(target_img_path):
                 shutil.copy(img_path, target_img_path)
 
-        # 🚀 自動精準上傳至 S3 的專屬子資料夾: active_learning/{category}/
-        if real_local_src and os.path.exists(real_local_src):
-            try:
-                s3_c = boto3.client('s3')
-                bucket_n = os.getenv("AWS_BUCKET_NAME", "aipe03-3")
-                s3_key = f"active_learning/{category}/{base_name}"
-                s3_c.upload_file(real_local_src, bucket_n, s3_key)
-                print(f"☁️ [S3 自動歸類] 成功將照片上傳至 S3 專屬資料夾: s3://{bucket_n}/{s3_key}")
-            except Exception as s3_err:
-                print(f"⚠️ 上傳 S3 專屬資料夾失敗 (仍保存在本地): {s3_err}")
+        # 🚀 目前無 AWS 環境，直接跳過 S3 上傳，僅保留在本地
+        # if real_local_src and os.path.exists(real_local_src):
+        #     try:
+        #         s3_c = boto3.client('s3')
+        #         bucket_n = os.getenv("AWS_BUCKET_NAME", "aipe03-3")
+        #         s3_key = f"active_learning/{category}/{base_name}"
+        #         s3_c.upload_file(real_local_src, bucket_n, s3_key)
+        #         print(f"☁️ [S3 自動歸類] 成功將照片上傳至 S3 專屬資料夾: s3://{bucket_n}/{s3_key}")
+        #     except Exception as s3_err:
+        #         print(f"⚠️ 上傳 S3 專屬資料夾失敗 (仍保存在本地): {s3_err}")
 
         
         if not rtdetr_box_data:
@@ -293,17 +293,17 @@ def vlm_review_node(state: AgentState) -> Dict[str, Any]:
     if state["alert_type"] == "Routine_Environment_Sanity_Check":
         prompt_text = (
             "You must reply ONLY in Traditional Chinese (繁體中文).\n"
-            "You are an AI data curator helping to collect training data for a DETR (Bed and Wheelchair) detection model.\n"
+            "You are an AI data curator helping to collect training data for a DETR (Bed and Wheelchair) detection model in a care center.\n"
             "Please carefully inspect the image and report if you can clearly see a 'bed' (病床) or a 'wheelchair' (輪椅).\n"
             "Please output a structured report using this exact template:\n\n"
             "【安養中心輪椅與床鋪標註收集報告】\n"
             f"1. 巡檢相機: {state['cam_id']}\n"
-            "2. 發現目標: 輪椅 / 床 / 皆無\n"
-            "3. 目標位置描述: \n\n"
+            "2. 發現目標: (輪椅 / 病床 / 皆無)\n"
+            "3. 目標位置與狀態描述: (簡述物品擺放位置與狀態)\n\n"
             "==============================\n"
             "【主動探索學習模組】\n"
             "請在報告最尾端，嚴格且只以一組完整的 JSON 格式（不要包含 markdown 標籤或 ```json 字樣）"
-            "輸出你看到畫面中的目標（例如 'wheelchair' 或 'bed'，如皆無請輸出 'unknown'），格式必須完全對齊如下：\n"
+            "輸出你看到畫面中的目標（'wheelchair' 或 'bed'，如皆無請輸出 'unknown'），格式必須完全對齊如下：\n"
             '{"item_name": "物品英文名", "description": "物品的中文描述"}'
         )
         vlm_input_source = [state["local_backup_img"] if (state["is_s3"] and state["local_backup_img"]) else state["img_path"]]
@@ -323,18 +323,21 @@ def vlm_review_node(state: AgentState) -> Dict[str, Any]:
             
         prompt_text = (
             "You must reply ONLY in Traditional Chinese (繁體中文).\n"
-            "You are an AI head nurse in a security care center. "
-            "Please watch this security video clip carefully to evaluate the patient's dynamic safety.\n"
-            "Analyze the behavioral changes over time (e.g., whether the person actually fell, slipped slowly, or just bent over).\n"
+            "You are a highly experienced AI head nurse and safety analyst in a smart elderly care center.\n"
+            "Please carefully analyze the provided visual sequence to evaluate the person's dynamic safety.\n"
+            "CRITICAL RULES FOR FALSE ALARMS:\n"
+            "- If the person is clearly performing safe daily activities (e.g., stretching, yoga, picking up an object, tying shoelaces, or resting comfortably), you MUST evaluate the situation as safe (Severity: Low).\n"
+            "- A true fall involves sudden loss of balance, distress, or abnormal posture indicative of an accident.\n"
             f"Edge system clues: {state['env_clues']}.\n\n"
-            "Output a structured alert report using this exact template:\n\n"
+            "Please output a structured alert report using this exact template:\n\n"
             "【安養中心緊急通報（Video-LLM 原生影片二審版）】\n"
-            "1. ... " 
-            "5. 醫療建議行動: \n\n"
+            "1. 現場狀況分析: (描述長者的動作軌跡與目前狀態)\n"
+            "2. 危險程度評估: (High / Medium / Low) - 請務必嚴格評估，若為安全動作請標示 Low\n"
+            "3. 醫療建議行動: (後續處置建議)\n\n"
             "==============================\n"
             "【主動探索學習模組】\n"
             "請在報告最尾端，嚴格且只以一組完整的 JSON 格式（不要包含 markdown 標籤或 ```json 字樣）"
-            "輸出你看到畫面中「最可能導致跌倒/異常的物品或現場關鍵物（例如 slipper, wire, iv_pole, walker，如無危險物請輸出 'unknown'）」，格式必須完全對齊如下：\n"
+            "輸出畫面中「最可能導致跌倒或值得注意的現場關鍵物（例如 slipper, wire, iv_pole, walker，如皆無請輸出 'unknown'）」，格式必須完全對齊如下：\n"
             '{"item_name": "物品英文名", "description": "物品的中文具體描述與現場狀況分析"}'
         )
 

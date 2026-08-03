@@ -44,10 +44,12 @@ if [ ! -f "$BASE_DIR/go2rtc" ]; then
     echo "   ⬇️ 正在下載 go2rtc (首次啟動需下載)..."
     ARCH=$(uname -m)
     if [ "$ARCH" = "arm64" ]; then
-        curl -L -s https://github.com/AlexxIT/go2rtc/releases/latest/download/go2rtc_mac_arm64 -o "$BASE_DIR/go2rtc"
+        curl -L -s https://github.com/AlexxIT/go2rtc/releases/latest/download/go2rtc_mac_arm64.zip -o "$BASE_DIR/go2rtc.zip"
     else
-        curl -L -s https://github.com/AlexxIT/go2rtc/releases/latest/download/go2rtc_mac_amd64 -o "$BASE_DIR/go2rtc"
+        curl -L -s https://github.com/AlexxIT/go2rtc/releases/latest/download/go2rtc_mac_amd64.zip -o "$BASE_DIR/go2rtc.zip"
     fi
+    unzip -q -o "$BASE_DIR/go2rtc.zip" -d "$BASE_DIR/"
+    rm -f "$BASE_DIR/go2rtc.zip"
     chmod +x "$BASE_DIR/go2rtc"
 fi
 nohup "$BASE_DIR/go2rtc" -config "$BASE_DIR/go2rtc.yaml" > "$BASE_DIR/go2rtc.log" 2>&1 &
@@ -58,7 +60,7 @@ sleep 2
 # 1. 真實手機/遠端 IP 攝影機 (填寫 RTSP 網址)
 RTSP_URL=""
 # 2. Iriun / 筆電內建鏡頭 / USB 視訊鏡頭 (0=關閉, 1=預設鏡頭, 2=外接鏡頭)
-USE_WEBCAM="1"
+USE_WEBCAM="0"
 # =========================================================================
 
 if [ -n "$RTSP_URL" ]; then
@@ -92,10 +94,10 @@ else
     if [ -f "$TEST_VIDEO_1" ]; then
         echo "🎥 [展示模式] 未設定攝影機，啟動四宮格多路推流 (Demo Mode)"
         pkill -f "ffmpeg.*rtsp://localhost:8554" >/dev/null 2>&1
-        nohup ffmpeg -nostdin -re -stream_loop -1 -i "$TEST_VIDEO_1" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_0 > /dev/null 2>&1 &
-        nohup ffmpeg -nostdin -re -stream_loop -1 -i "$TEST_VIDEO_2" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_1 > /dev/null 2>&1 &
-        nohup ffmpeg -nostdin -re -stream_loop -1 -i "$TEST_VIDEO_3" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_2 > /dev/null 2>&1 &
-        nohup ffmpeg -nostdin -re -stream_loop -1 -i "$TEST_VIDEO_4" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_3 > /dev/null 2>&1 &
+        nohup ffmpeg -nostdin -re -i "$TEST_VIDEO_1" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_0 > /dev/null 2>&1 &
+        nohup ffmpeg -nostdin -re -i "$TEST_VIDEO_2" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_1 > /dev/null 2>&1 &
+        nohup ffmpeg -nostdin -re -i "$TEST_VIDEO_3" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_2 > /dev/null 2>&1 &
+        nohup ffmpeg -nostdin -re -i "$TEST_VIDEO_4" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_3 > /dev/null 2>&1 &
         sleep 2
     fi
 fi
@@ -105,6 +107,11 @@ echo "🧠 [4/4] 啟動 VLM 警報攔截器與核心 AI 辨識引擎..."
 pkill -f "python.*vlm_worker.py" >/dev/null 2>&1
 (cd "$BASE_DIR/Fall/tools" && nohup "$BASE_DIR/Fall/.venv/bin/python" vlm_worker.py > "$BASE_DIR/vlm_worker.log" 2>&1 &)
 
+echo "======================================================="
+echo "✅ [Edge 前線] 系統啟動完畢，AI 已進入 24H 監視狀態！"
+echo "🔗 請在瀏覽器開啟戰情室: http://localhost:5173"
+echo "======================================================="
+
 # 硬體自動偵測：若有 N 卡則啟用 DeepStream Docker，否則使用 Python (GStreamer+OpenCV)
 if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
     echo "🚀 [硬體偵測] 發現 NVIDIA GPU，自動切換至 DeepStream 產線級引擎！"
@@ -113,7 +120,7 @@ if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
     docker stop deepstream_pipeline >/dev/null 2>&1 || true
     docker rm deepstream_pipeline >/dev/null 2>&1 || true
     
-    # 啟動 DeepStream 容器 (請根據您實際的 image 名稱與需求微調以下參數)
+    # 啟怒 DeepStream 容器 (請根據您實際的 image 名稱與需求微調以下參數)
     docker run -d --name deepstream_pipeline --gpus all \
         -v "$BASE_DIR/deepstream_configs:/app/deepstream_configs" \
         -w /app \
@@ -125,10 +132,6 @@ else
     echo "💻 [硬體偵測] 未發現 NVIDIA GPU，自動降級啟用 Python (GStreamer+OpenCV) 引擎！"
     (cd "$BASE_DIR/Fall/tools" && "$BASE_DIR/Fall/.venv/bin/python" inference_test.py --headless)
 fi
-
-echo "======================================================="
-echo "✅ [Edge 前線] 系統啟動完畢，AI 已進入 24H 監視狀態！"
-echo "======================================================="
 
 # =========================================================================
 # 📝 腳本備註：start_edge.sh (前線士兵)

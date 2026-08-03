@@ -131,26 +131,21 @@ def main():
         if video_file in human_annotations:
             tasks.append((video_file, video_path, human_annotations[video_file], CONF_THRES))
 
-    print(f"🚀 啟動多進程特徵提取 (任務數: {len(tasks)})...")
+    # Mac MPS 容易在多進程死鎖，改用安全的循序處理
+    print(f"🚀 啟動循序特徵提取 (任務數: {len(tasks)})...")
+    init_worker(DEFAULT_MODEL_PATH, SEQ_LENGTH)
     
     all_features = []
     all_labels = []
-    processed_count = 0
     
-    # 根據 CPU 核心數自動決定 workers 數量，但不超過 4 以免記憶體爆炸
-    max_workers = min(4, (os.cpu_count() or 2)) 
-    
-    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers, initializer=init_worker, initargs=(DEFAULT_MODEL_PATH, SEQ_LENGTH)) as executor:
-        futures = [executor.submit(process_video, task) for task in tasks]
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                v_file, v_features, v_labels = future.result()
-                processed_count += 1
-                print(f"[{processed_count}/{len(tasks)}] 完成影片: {v_file} -> 提取了 {len(v_features)} 個特徵序列")
-                all_features.extend(v_features)
-                all_labels.extend(v_labels)
-            except Exception as e:
-                print(f"❌ 處理影片發生錯誤: {e}")
+    for task in tasks:
+        try:
+            v_file, v_features, v_labels = process_video(task)
+            all_features.extend(v_features)
+            all_labels.extend(v_labels)
+            print(f"✅ 完成影片: {v_file} -> 提取了 {len(v_features)} 個特徵序列")
+        except Exception as e:
+            print(f"❌ 處理影片發生錯誤: {e}")
 
     if len(all_features) > 0:
         X = np.array(all_features)
@@ -167,4 +162,6 @@ def main():
         print("\n⚠️ 未能從影片中提取出任何完整的特徵序列")
 
 if __name__ == '__main__':
+    import multiprocessing
+    multiprocessing.set_start_method('spawn', force=True)
     main()
