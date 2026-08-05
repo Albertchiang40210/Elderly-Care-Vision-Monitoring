@@ -101,7 +101,7 @@ export function FullScreenAlert({ alerts, now, onAcknowledge, onSuppress, onDism
         </div>
 
         {/* 影片：整寬置中 */}
-        <div className="mt-4 aspect-video max-h-[55vh] w-full overflow-hidden rounded-xl bg-[var(--bg-surface-2)]">
+        <div className="mt-4 aspect-video max-h-[45vh] w-full overflow-hidden rounded-xl bg-[var(--bg-surface-2)]">
           {clipLoading ? (
             <div className="flex h-full items-center justify-center">
               <span className="text-[var(--text-muted)]">載入中...</span>
@@ -128,30 +128,32 @@ export function FullScreenAlert({ alerts, now, onAcknowledge, onSuppress, onDism
           )}
         </div>
 
+        {/* VLM 分析報告顯示區塊 (改為全寬度，避免與按鈕擠在一起) */}
+        {activeAlert.vlm_result && activeAlert.vlm_result.description && (
+          <div className="mt-4 rounded-lg bg-[var(--bg-surface-3)] p-4 text-sm text-[var(--text-secondary)] overflow-y-auto max-h-32 border border-[var(--border)] shadow-inner">
+            <p className="font-semibold text-[var(--text-primary)] mb-1.5 flex items-center gap-2">
+              <span className="text-lg">🤖</span> VLM 語意分析報告：
+            </p>
+            <p className="whitespace-pre-wrap leading-relaxed text-[15px]">{activeAlert.vlm_result.description}</p>
+          </div>
+        )}
+
         {/* 底列：AI 信心分數＋已經過（左）／誤報＋接手處理（右） */}
-        <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between border-t border-[var(--border)] pt-4">
           <div className="flex gap-8 text-sm text-[var(--text-primary)]">
             <div>
-              <p>AI 判斷信心分數</p>
-              <p className="text-[30px] font-semibold leading-tight text-[var(--danger)]">
+              <p className="text-[var(--text-secondary)] mb-1">AI 判斷信心分數</p>
+              <p className="text-[28px] font-semibold leading-tight text-[var(--danger)]">
                 {activeAlert.confidence.toFixed(2)}
               </p>
             </div>
             <div>
-              <p>已經過</p>
-              <p className="text-[30px] font-semibold leading-tight text-[var(--text-primary)]">
+              <p className="text-[var(--text-secondary)] mb-1">已經過</p>
+              <p className="text-[28px] font-semibold leading-tight text-[var(--text-primary)]">
                 {formatMinutesSeconds(secondsSince(activeAlert.occurred_at, now))}
               </p>
             </div>
           </div>
-
-          {/* VLM 分析報告顯示區塊 */}
-          {activeAlert.vlm_result && activeAlert.vlm_result.description && (
-            <div className="mt-4 sm:mt-0 sm:ml-6 flex-1 rounded-md bg-[var(--bg-surface-3)] p-3 text-sm text-[var(--text-secondary)] overflow-y-auto max-h-32 border border-[var(--border)]">
-              <p className="font-semibold text-[var(--text-primary)] mb-1">🤖 VLM 語意分析報告：</p>
-              <p className="whitespace-pre-wrap leading-relaxed">{activeAlert.vlm_result.description}</p>
-            </div>
-          )}
 
           {/* 誤報需二次確認：第一次按顯示確認列，避免把真跌倒誤標為誤報 */}
           {confirmStage === 'confirming' ? (
@@ -183,7 +185,7 @@ export function FullScreenAlert({ alerts, now, onAcknowledge, onSuppress, onDism
               <button
                 type="button"
                 onClick={() => setConfirmStage('confirming')}
-                className="rounded-md border border-[var(--border)] bg-[var(--bg-surface-2)] px-6 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors duration-150 hover:opacity-90"
+                className="rounded-md border border-[var(--border)] bg-[var(--bg-surface-2)] px-8 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--bg-surface-3)]"
               >
                 誤報
               </button>
@@ -191,7 +193,7 @@ export function FullScreenAlert({ alerts, now, onAcknowledge, onSuppress, onDism
               <button
                 type="button"
                 onClick={() => onAcknowledge(activeAlert)}
-                className="rounded-md bg-[var(--success)] px-6 py-2 text-sm font-medium text-white transition-colors duration-150 hover:opacity-90"
+                className="rounded-md bg-[var(--success)] px-8 py-2.5 text-sm font-medium text-white transition-colors duration-150 hover:brightness-110 shadow-sm"
               >
                 接手處理
               </button>

@@ -5,7 +5,7 @@
  * - canvas: 從 SSE 接收 YOLO 結果，畫 bbox + 17 點骨架
  * - 無二次推理，推理引擎每 4 幀順手推一次結果
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 
 // 直接連線至後端 Port 8000 的即時骨架 SSE 推播通道
 const DETECT_SSE = 'http://localhost:8000/events/live-detection/stream';
@@ -28,20 +28,29 @@ interface Person {
   kps?: [number, number][];              // 正規化 0-1
   keypoints?: [number, number][];        // 雙重別名支援
   is_fall?: boolean;
+  action?: string;                       // AI 判斷的動作標籤
+}
+
+interface DetrObject {
+  class: string;
+  conf: number;
+  bbox: [number, number, number, number]; // 正規化 0-1
 }
 
 interface Props {
   cameraLabel?: string;
   streamId?: string;
+  mode?: 'pose' | 'detr' | 'both';
 }
 
-export default function CameraStream({ cameraLabel = 'AI 即時監控', streamId = 'cam_in' }: Props) {
+export default function CameraStream({ cameraLabel = 'AI 即時監控', streamId = 'cam_in', mode = 'pose' }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const rafRef = useRef<number>(0);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const personsRef = useRef<Person[]>([]);   // 最新一幀偵測結果
+  const objectsRef = useRef<DetrObject[]>([]); // 最新 DETR 環境物品
   const sseRef = useRef<EventSource | null>(null);
   const aiFpsRef = useRef<number>(0);
 
@@ -55,16 +64,32 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控', streamId
 
   // ── SSE 訂閱偵測結果 ──────────────────────────────────
   useEffect(() => {
-    const es = new EventSource(DETECT_SSE);
+    let token = '';
+    try {
+      const sessionData = localStorage.getItem('fulilian_auth_session');
+      if (sessionData) {
+        token = JSON.parse(sessionData).token || '';
+      }
+    } catch (e) {
+      console.warn('Failed to parse token from localStorage', e);
+    }
+    const es = new EventSource(`${DETECT_SSE}?token=${encodeURIComponent(token)}`);
     sseRef.current = es;
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
-        // 只抓取屬於自己這支攝影機的資料，避免吃到其他攝影機推送的辨識結果
-        const parsedPersons = data[streamId];
-        // 只有當該畫面確實有資料時才更新，否則保持上一次的偵測結果或空陣列
-        if (parsedPersons !== undefined) {
-          personsRef.current = Array.isArray(parsedPersons) ? parsedPersons : [];
+        // 抓取屬於自己這支攝影機的資料
+        const parsedData = data[streamId];
+        if (parsedData !== undefined) {
+          if (Array.isArray(parsedData)) {
+            personsRef.current = parsedData;
+            objectsRef.current = [];
+          } else {
+            personsRef.current = parsedData.persons || [];
+            if (parsedData.objects !== undefined) {
+              objectsRef.current = parsedData.objects;
+            }
+          }
         }
         if (data.backend_fps !== undefined) {
           aiFpsRef.current = data.backend_fps;
@@ -74,9 +99,13 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控', streamId
         console.error("[CameraStream SSE Parse Error]", err);
       }
     };
-    es.onerror = () => {};   // 安靜重連，不影響 UI
-    return () => es.close();
-  }, []);
+    es.onerror = () => {};   // 安靜重連
+    return () => {
+      es.close();
+      personsRef.current = []; // 切換鏡頭時清空舊的框
+      objectsRef.current = [];
+    };
+  }, [streamId]);
 
   // ── canvas 繪製迴圈 ────────────────────────────────────
   useEffect(() => {
@@ -110,78 +139,126 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控', streamId
       // 若超過 1200ms 沒收到新影格座標（人物離開畫面），自動清空殘留畫框與骨架
       if (Date.now() - lastUpdateRef.current > 1200) {
         personsRef.current = [];
+        // 保留 objectsRef 較長的時間，因為它的更新頻率較低 (1 FPS)
+        if (Date.now() - lastUpdateRef.current > 3000) {
+          objectsRef.current = [];
+        }
       }
 
       const W = canvasElement.width;
       const H = canvasElement.height;
-      const persons = personsRef.current;
+      
+      const showPose = mode === 'pose' || mode === 'both';
+      const showDetr = mode === 'detr' || mode === 'both';
 
-      persons.forEach((p) => {
-        // ─ bbox（傳入的是 0.0 ~ 1.0 相對座標）
-        const [nx1, ny1, nx2, ny2] = p.bbox;
-        const rx1 = nx1 * W, ry1 = ny1 * H;
-        const rx2 = nx2 * W, ry2 = ny2 * H;
-        const bw = rx2 - rx1;
-        const bh = ry2 - ry1;
+      if (showPose) {
+        const persons = personsRef.current;
+        persons.forEach((p) => {
+          // ─ bbox（傳入的是 0.0 ~ 1.0 相對座標）
+          const [nx1, ny1, nx2, ny2] = p.bbox;
+          const rx1 = nx1 * W, ry1 = ny1 * H;
+          const rx2 = nx2 * W, ry2 = ny2 * H;
+          const bw = rx2 - rx1;
+          const bh = ry2 - ry1;
 
-        // 偵測框顏色：跌倒為警告亮紅色 (#ff334b)，無跌倒為健康亮綠色 (#00ff88)
-        const boxColor = p.is_fall ? '#ff334b' : '#00ff88';
+          // 偵測框顏色：根據動作分類給予不同顏色
+          let boxColor = '#00ff88'; // 預設綠色 (Walking)
+          if (p.is_fall || p.action === 'Fall') {
+            boxColor = '#ff334b'; // Fall → 紅色
+          } else if (p.action === 'Sitting') {
+            boxColor = '#ffaa00'; // Sitting → 橘黃色
+          } else if (p.action === 'Bending') {
+            boxColor = '#00d4ff'; // Bending → 青藍色
+          }
 
-        // 1. 緊湊型標籤 (Slim Label Tag) - 貼合文字寬度，置於框外頂部避免遮擋頭部
-        const labelText = `person ${p.conf.toFixed(2)}`;
-        ctx.font = 'bold 13px Arial, sans-serif';
-        const textMetrics = ctx.measureText(labelText);
-        const labelWidth = textMetrics.width + 10;
-        const labelHeight = 20;
-        
-        const labelY = ry1 - labelHeight >= 0 ? ry1 - labelHeight : ry1;
+          // 1. 緊湊型標籤 (Slim Label Tag) - 顯示 AI 判斷的動作
+          const displayLabel = p.action && p.action !== 'Tracking' ? p.action : 'Normal';
+          const labelText = `${displayLabel} ${p.conf.toFixed(2)}`;
+          ctx.font = 'bold 13px Arial, sans-serif';
+          const textMetrics = ctx.measureText(labelText);
+          const labelWidth = textMetrics.width + 10;
+          const labelHeight = 20;
+          
+          const labelY = ry1 - labelHeight >= 0 ? ry1 - labelHeight : ry1;
 
-        ctx.fillStyle = boxColor;
-        ctx.fillRect(rx1, labelY, labelWidth, labelHeight);
-        ctx.fillStyle = '#000000';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(labelText, rx1 + 5, labelY + labelHeight / 2);
+          ctx.fillStyle = boxColor;
+          ctx.fillRect(rx1, labelY, labelWidth, labelHeight);
+          ctx.fillStyle = '#000000';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(labelText, rx1 + 5, labelY + labelHeight / 2);
 
-        // 2. 外框 Bounding Box
-        ctx.strokeStyle = boxColor;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(rx1, ry1, bw, bh);
+          // 2. 外框 Bounding Box
+          ctx.strokeStyle = boxColor;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(rx1, ry1, bw, bh);
 
-        // 4. 骨架關鍵點 & 連線 (保留前端高畫質渲染選項)
-        const kpts = p.kps || p.keypoints;
-        if (showSkeleton && kpts && kpts.length >= 17) {
-          const getPos = (pt: any): [number, number] => {
-            if (!pt) return [0, 0];
-            if (Array.isArray(pt)) return [pt[0], pt[1]];
-            if (typeof pt === 'object') return [pt.x ?? 0, pt.y ?? 0];
-            return [0, 0];
-          };
+          // 4. 骨架關鍵點 & 連線 (保留前端高畫質渲染選項)
+          const kpts = p.kps || p.keypoints;
+          if (showSkeleton && kpts && kpts.length >= 17) {
+            const getPos = (pt: any): [number, number] => {
+              if (!pt) return [0, 0];
+              if (Array.isArray(pt)) return [pt[0], pt[1]];
+              if (typeof pt === 'object') return [pt.x ?? 0, pt.y ?? 0];
+              return [0, 0];
+            };
 
-          ctx.strokeStyle = '#00e5ff';
-          ctx.lineWidth = 3;
-          SKELETON.forEach(([a, b]) => {
-            const [ax, ay] = getPos(kpts[a]);
-            const [bx, by] = getPos(kpts[b]);
-            if ((ax === 0 && ay === 0) || (bx === 0 && by === 0)) return;
-            ctx.beginPath();
-            ctx.moveTo(ax * W, ay * H);
-            ctx.lineTo(bx * W, by * H);
-            ctx.stroke();
-          });
+            ctx.strokeStyle = '#00e5ff';
+            ctx.lineWidth = 3;
+            SKELETON.forEach(([a, b]) => {
+              const [ax, ay] = getPos(kpts[a]);
+              const [bx, by] = getPos(kpts[b]);
+              if ((ax === 0 && ay === 0) || (bx === 0 && by === 0)) return;
+              ctx.beginPath();
+              ctx.moveTo(ax * W, ay * H);
+              ctx.lineTo(bx * W, by * H);
+              ctx.stroke();
+            });
 
-          kpts.forEach((pt) => {
-            const [kx, ky] = getPos(pt);
-            if (kx === 0 && ky === 0) return;
-            ctx.beginPath();
-            ctx.arc(kx * W, ky * H, 4, 0, Math.PI * 2);
-            ctx.fillStyle = '#ffdd00';
-            ctx.fill();
-            ctx.strokeStyle = '#000000';
-            ctx.lineWidth = 1;
-            ctx.stroke();
-          });
-        }
-      });
+            kpts.forEach((pt) => {
+              const [kx, ky] = getPos(pt);
+              if (kx === 0 && ky === 0) return;
+              ctx.beginPath();
+              ctx.arc(kx * W, ky * H, 4, 0, Math.PI * 2);
+              ctx.fillStyle = '#ffdd00';
+              ctx.fill();
+              ctx.strokeStyle = '#000000';
+              ctx.lineWidth = 1;
+              ctx.stroke();
+            });
+          }
+        });
+      }
+
+      if (showDetr) {
+        const objects = objectsRef.current;
+        objects.forEach((obj) => {
+          const [nx1, ny1, nx2, ny2] = obj.bbox;
+          const rx1 = nx1 * W, ry1 = ny1 * H;
+          const rx2 = nx2 * W, ry2 = ny2 * H;
+          const bw = rx2 - rx1;
+          const bh = ry2 - ry1;
+
+          const boxColor = '#00c3ff'; // 藍色框
+
+          const labelText = `${obj.class} ${(obj.conf * 100).toFixed(0)}%`;
+          ctx.font = 'bold 14px Arial, sans-serif';
+          const textMetrics = ctx.measureText(labelText);
+          const labelWidth = textMetrics.width + 12;
+          const labelHeight = 22;
+          
+          const labelY = ry1 - labelHeight >= 0 ? ry1 - labelHeight : ry1;
+
+          ctx.fillStyle = boxColor;
+          ctx.fillRect(rx1, labelY, labelWidth, labelHeight);
+          ctx.fillStyle = '#000000';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(labelText, rx1 + 6, labelY + labelHeight / 2);
+
+          ctx.strokeStyle = boxColor;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(rx1, ry1, bw, bh);
+        });
+      }
 
       // 繪製 AI Inference FPS 於右下角 (仿造老師截圖風格)
       const aiFps = aiFpsRef.current;
@@ -224,7 +301,7 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控', streamId
   }, [showSkeleton]);
 
   // ── WebRTC WHEP 連線 ───────────────────────────────────
-  async function connect() {
+  const connect = useCallback(async () => {
     const video = videoRef.current;
     if (!video) return;
     if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
@@ -258,6 +335,7 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控', streamId
       const dynamicWhepUrl = `http://localhost:8889/${streamId}/whep`;
       const res = await fetch(dynamicWhepUrl, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription!.sdp });
       if (!res.ok) throw new Error(`WHEP ${res.status}`);
+      
       await pc.setRemoteDescription({ type: 'answer', sdp: await res.text() });
       setStatus('載入影像中…');
     } catch (err: unknown) {
@@ -265,22 +343,21 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控', streamId
       setStatus(`連線失敗：${msg}`);
       scheduleReconnect();
     }
-  }
+  }, [streamId]); // eslint-disable-next-line react-hooks/exhaustive-deps
 
-  function scheduleReconnect() {
+  const scheduleReconnect = useCallback(() => {
     if (reconnectTimer.current) return;
     reconnectTimer.current = setTimeout(() => { reconnectTimer.current = null; connect(); }, 5000);
-  }
+  }, [connect]);
 
   useEffect(() => {
     connect();
     return () => {
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-      cancelAnimationFrame(rafRef.current);
       pcRef.current?.close();
+      pcRef.current = null;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [connect]);
 
   return (
     <div 
