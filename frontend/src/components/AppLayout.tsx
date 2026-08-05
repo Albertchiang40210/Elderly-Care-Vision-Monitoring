@@ -54,6 +54,7 @@ function NavGroupLabel({ children }: { children: string }) {
 
 const MAIN_NAV: { to: string; label: string; exact?: boolean; icon: IconComponent }[] = [
   { to: '/', label: '首頁', exact: true, icon: HomeIcon },
+  { to: '/hazards', label: '環境巡檢', icon: MonitorIcon },
   { to: '/analysis', label: '數據分析', icon: ChartIcon },
   { to: '/events', label: '事件中心', icon: BellIcon },
 ];

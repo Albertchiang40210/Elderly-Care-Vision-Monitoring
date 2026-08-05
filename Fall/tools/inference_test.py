@@ -96,12 +96,26 @@ except Exception as e:
     triton_client = None
 
 # =========================================================================
-# 🌟 全域載入模型
+# 🌟 全域載入模型 (自動尋找最新訓練出的 Active Learning 模型)
 # =========================================================================
-pose_model_name = "yolo11s-pose.pt"
-coreml_model_name = "yolo11s-pose.mlpackage"
+import glob
 
-if not os.path.exists(coreml_model_name) and os.path.exists(pose_model_name):
+def get_latest_model(base_dir):
+    search_pattern = os.path.join(base_dir, "*", "models", "best.pt")
+    models = glob.glob(search_pattern)
+    if not models:
+        return None
+    return max(models, key=os.path.getmtime)
+
+# 1. 查找最新訓練出的 YOLO Pose 模型
+custom_pose_dir = os.path.join(PROJECT_ROOT, "active_learning_pose_dataset", "models", "yolo_pose", "Fall_Detection")
+custom_pose = get_latest_model(custom_pose_dir)
+pose_model_name = custom_pose if custom_pose else "yolo11s-pose.pt"
+print(f"🦴 [Model Loader] YOLO Pose 載入路徑: {pose_model_name}")
+
+coreml_model_name = "yolo11s-pose.mlpackage"
+# 如果使用客製化模型，則忽略 CoreML (因為目前沒有導出機制)
+if not custom_pose and not os.path.exists(coreml_model_name) and os.path.exists(pose_model_name):
     try:
         print("🔄 首次載入：正在將 YOLO Pose 導出為 CoreML 格式以啟用 Mac 神經引擎加速...")
         from ultralytics import YOLO as YOLO_Exporter
@@ -195,13 +209,25 @@ def _async_process_video(frames, video_path, snapshot_path, cam_id, num_id, prod
 
 def camera_worker(camera_id, video_source):
     global producer, device, output_frames, frames_lock, triton_client, pose_model_name
-    
-    from ultralytics import YOLO
+    from ultralytics import YOLO, RTDETR
     local_yolo_pose_model = YOLO(pose_model_name)
     try:
         local_yolo_pose_model.to(device)
     except: pass
+
+    # 2. 暫時使用原廠預設的 RT-DETR 模型 (因為目前缺乏醫院真實場景訓練資料)
+    detr_model_path = os.path.join(PROJECT_ROOT, "rtdetr-l.pt")
+    print(f"📦 [Model Loader] RT-DETR 載入路徑: {detr_model_path}")
     
+    local_rtdetr_model = None
+    try:
+        if os.path.exists(detr_model_path):
+            local_rtdetr_model = RTDETR(detr_model_path)
+            local_rtdetr_model.to(device)
+            print("✅ [RT-DETR] 環境危險物品辨識引擎啟動成功！")
+    except Exception as e:
+        print(f"⚠️ [{camera_id}] RT-DETR load error: {e}")
+
     # 🎯 檢查 video_source 是否為數字 (例如 "0" 或 "1")，如果是，則轉換為整數 (供 OpenCV 直接讀取本地實體/虛擬鏡頭)
     if isinstance(video_source, str) and video_source.isdigit():
         video_source = int(video_source)
@@ -214,7 +240,7 @@ def camera_worker(camera_id, video_source):
         "cam_3": "test4.mp4"
     }
     demo_video_name = video_map.get(camera_id, "test1.mp4")
-    demo_video_path = os.path.join(PROJECT_ROOT, "test_demo", demo_video_name)
+    demo_video_path = os.path.join(PROJECT_ROOT, "Fall", "test_demo", demo_video_name)
     
     cap = None
     if isinstance(video_source, str) and video_source.startswith("rtsp://"):
@@ -324,6 +350,7 @@ def camera_worker(camera_id, video_source):
     latest_push_frame = None
     latest_push_lock = threading.Lock()
     push_running = True
+    detr_objects_list = []
 
     def ffmpeg_push_worker():
         nonlocal latest_push_frame, push_running
@@ -404,6 +431,69 @@ def camera_worker(camera_id, video_source):
                 results_pose = local_yolo_pose_model.track(frame, persist=True, tracker="bytetrack.yaml", verbose=False, conf=0.08, device=device)
 
             last_annotated_frame = frame.copy()
+
+        # ─── 🎯【RT-DETR 環境物品偵測】───────────────────
+        # 降頻執行，每 30 幀 (約 1 秒) 掃描一次，避免拖慢效能
+        if frame_count % 30 == 0 and local_rtdetr_model is not None:
+            try:
+                # 提高信心門檻，減少誤判與雜訊
+                results_detr = local_rtdetr_model.predict(frame, conf=0.45, verbose=False, device=device)
+                detr_objects_list = []
+                
+                # 定義想要顯示的環境物品白名單 (過濾掉 person 以及細碎物品如手機、遙控器)
+                HAZARD_WHITELIST = {
+                    "chair", "couch", "bed", "dining table", "tv", "laptop", 
+                    "refrigerator", "potted plant", "wheelchair"
+                }
+
+                if results_detr and len(results_detr) > 0:
+                    r = results_detr[0]
+                    names = r.names
+                    for i, box in enumerate(r.boxes):
+                        cls_id = int(box.cls[0])
+                        conf = float(box.conf[0])
+                        name = names.get(cls_id, "object")
+                        
+                        # 過濾：只留下白名單內的物品
+                        if name not in HAZARD_WHITELIST:
+                            continue
+
+                        # 取得相對於寬高的 0-1 座標
+                        xywhn = box.xywhn[0].tolist()
+                        # xywh 轉 x1 y1 x2 y2 (0-1)
+                        nx_c, ny_c, nw, nh = xywhn
+                        nx1 = nx_c - nw / 2
+                        ny1 = ny_c - nh / 2
+                        nx2 = nx_c + nw / 2
+                        ny2 = ny_c + nh / 2
+                        
+                        # [修復] 過濾掉與人類重疊的假陽性 (防止專屬模型把人誤認為病床)
+                        is_overlapping_person = False
+                        if results_pose and len(results_pose) > 0 and results_pose[0].boxes is not None:
+                            for p_box in results_pose[0].boxes.xyxyn.cpu().numpy():
+                                px1, py1, px2, py2 = p_box
+                                # 簡單的 IoU 或包含測試
+                                inter_x1 = max(nx1, px1)
+                                inter_y1 = max(ny1, py1)
+                                inter_x2 = min(nx2, px2)
+                                inter_y2 = min(ny2, py2)
+                                inter_area = max(0, inter_x2 - inter_x1) * max(0, inter_y2 - inter_y1)
+                                detr_area = (nx2 - nx1) * (ny2 - ny1)
+                                if detr_area > 0 and (inter_area / detr_area) > 0.4:  # 重疊超過 40% 就視為同一個物體(人)
+                                    is_overlapping_person = True
+                                    break
+                        
+                        if is_overlapping_person:
+                            continue
+                        
+                        detr_objects_list.append({
+                            "class": name,
+                            "conf": round(conf, 2),
+                            "bbox": [nx1, ny1, nx2, ny2]
+                        })
+            except Exception as e:
+                pass
+
 
         annotated_frame = last_annotated_frame.copy() if last_annotated_frame is not None else frame.copy()
 
@@ -493,7 +583,7 @@ def camera_worker(camera_id, video_source):
                         "vlm_summary": f"【緊急通報】邊緣 AI 即時偵測到長者 (ID:{track_id}) 跌倒！請護理人員手動處置。"
                     }
 
-                    if active_conf >= 0.8:
+                    if active_conf >= 0.4:
                         try:
                             import requests
                             headers = {"X-API-Key": VALID_API_KEY, "Content-Type": "application/json"}
@@ -514,10 +604,13 @@ def camera_worker(camera_id, video_source):
                                 pass
 
         # 發送繪圖 JSON 給前端
-        if persons_out_list or frame_count % 10 == 0:
+        if persons_out_list or detr_objects_list or frame_count % 10 == 0:
             try:
                 _detection_queue.put_nowait({
-                    camera_id: persons_out_list,
+                    camera_id: {
+                        "persons": persons_out_list,
+                        "objects": detr_objects_list
+                    },
                     "backend_fps": round(measured_fps, 2)
                 })
             except Exception:

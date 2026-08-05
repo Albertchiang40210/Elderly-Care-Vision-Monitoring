@@ -18,18 +18,22 @@ function CameraSelect({
   onChange,
 }: {
   cameras: Camera[];
-  value: number | null;
-  onChange: (id: number) => void;
+  value: number | 'all' | null;
+  onChange: (id: number | 'all') => void;
 }) {
   return (
     <label className="block">
       <span className="sr-only">切換鏡頭畫面選單</span>
       <select
-        value={value ?? ''}
-        onChange={(e) => onChange(Number(e.target.value))}
+        value={value ?? 'all'}
+        onChange={(e) => {
+          const val = e.target.value;
+          onChange(val === 'all' ? 'all' : Number(val));
+        }}
         className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-surface-2)] px-4 py-3 text-sm font-medium text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-soft)]"
         aria-label="切換鏡頭畫面選單"
       >
+        <option value="all">所有鏡頭 (四宮格)</option>
         {cameras.length === 0 && <option value="">切換鏡頭畫面選單</option>}
         {cameras.map((camera) => (
           <option key={camera.id} value={camera.id}>
@@ -109,7 +113,7 @@ function toPendingLogEntry(event: CareEvent): AlertLogEntry {
 
 export function Home() {
   const [cameras, setCameras] = useState<Camera[]>([]);
-  const [selectedCameraId, setSelectedCameraId] = useState<number | null>(null);
+  const [selectedCameraId, setSelectedCameraId] = useState<number | 'all' | null>('all');
   const [kpiSummary, setKpiSummary] = useState<KpiSummary | null>(null);
   const { events, alertLog, confirmedAlerts, reopenAlert, hazardEvents } = useEvents();
 
@@ -125,8 +129,7 @@ export function Home() {
   useEffect(() => {
     getCameras().then((list) => {
       setCameras(list);
-      // 預設帶入第一支鏡頭，讓即時影像一載入就有選定畫面。
-      setSelectedCameraId((prev) => prev ?? list[0]?.id ?? null);
+      // 預設維持 'all' 顯示全部鏡頭
     });
     getKpiSummary().then((data) => setKpiSummary(data));
   }, []);
@@ -145,13 +148,22 @@ export function Home() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* 左 2/3 */}
         <div className="flex flex-col gap-6 lg:col-span-2">
-          {/* 四宮格即時影像：WebRTC WHEP 多路直連 (Stage Demo 版) */}
-          <div className="grid grid-cols-2 gap-4">
-            <CameraStream streamId="cam_0" cameraLabel="301 病房 - 床位 A" />
-            <CameraStream streamId="cam_1" cameraLabel="301 病房 - 床位 B" />
-            <CameraStream streamId="cam_2" cameraLabel="走廊監視器 - 北側" />
-            <CameraStream streamId="cam_3" cameraLabel="交誼廳 - 主視角" />
-          </div>
+          {/* 影像顯示區塊 */}
+          {selectedCameraId === 'all' || !selectedCamera ? (
+            <div className="grid grid-cols-2 gap-4">
+              <CameraStream streamId="cam_0" cameraLabel="301 病房 - 床位 A" />
+              <CameraStream streamId="cam_1" cameraLabel="301 病房 - 床位 B" />
+              <CameraStream streamId="cam_2" cameraLabel="走廊監視器 - 北側" />
+              <CameraStream streamId="cam_3" cameraLabel="交誼廳 - 主視角" />
+            </div>
+          ) : (
+            <div className="w-full">
+              <CameraStream 
+                streamId={`cam_${selectedCamera.id - 1}`}
+                cameraLabel={`${selectedCamera.zone} - ${selectedCamera.name}`} 
+              />
+            </div>
+          )}
 
           {/* 手機：切換選單緊接鏡頭下方（桌機隱藏，改由右欄頂端顯示） */}
           <div className="lg:hidden">

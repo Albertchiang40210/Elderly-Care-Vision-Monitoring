@@ -325,9 +325,9 @@ def vlm_review_node(state: AgentState) -> Dict[str, Any]:
             "You must reply ONLY in Traditional Chinese (繁體中文).\n"
             "You are a highly experienced AI head nurse and safety analyst in a smart elderly care center.\n"
             "Please carefully analyze the provided visual sequence to evaluate the person's dynamic safety.\n"
-            "CRITICAL RULES FOR FALSE ALARMS:\n"
-            "- If the person is clearly performing safe daily activities (e.g., stretching, yoga, picking up an object, tying shoelaces, or resting comfortably), you MUST evaluate the situation as safe (Severity: Low).\n"
-            "- A true fall involves sudden loss of balance, distress, or abnormal posture indicative of an accident.\n"
+            "CRITICAL RULES FOR FALSE ALARMS & TRUE FALLS:\n"
+            "- If the person is clearly walking safely, sitting properly on a chair, or standing safely, you MUST evaluate the situation as safe (Severity: Low).\n"
+            "- If the person is lying on the floor, sprawling, or shows an abnormal posture on the ground, you MUST evaluate it as a true fall (Severity: High). Do not assume they are doing yoga or resting on the floor in a public space!\n"
             f"Edge system clues: {state['env_clues']}.\n\n"
             "Please output a structured alert report using this exact template:\n\n"
             "【安養中心緊急通報（Video-LLM 原生影片二審版）】\n"
@@ -374,7 +374,14 @@ def vlm_review_node(state: AgentState) -> Dict[str, Any]:
         elif "請在報告最尾端" in raw_report:
             raw_report = raw_report.split("請在報告最尾端")[0].strip()
 
-        severity = "high" if "high" in raw_report.lower() or "緊急" in raw_report or "跌倒" in raw_report else "low"
+        severity = "high"
+        severity_match = re.search(r"危險程度評估:\s*(High|Medium|Low)", raw_report, re.IGNORECASE)
+        if severity_match:
+            parsed_sev = severity_match.group(1).lower()
+            if parsed_sev == "low":
+                severity = "low"
+        elif "low" in raw_report.lower() and "high" not in raw_report.lower():
+            severity = "low"
         
         return {
             "raw_report": raw_report,
@@ -410,7 +417,7 @@ def active_learning_node(state: AgentState) -> Dict[str, Any]:
         # 輪椅與病床收集事件：只要有發現目標，就打包給 DETR 重訓
         if has_target_hazard:
             target_category = "hazard_objects"
-            print(f"💾 [Node: Active Learning] 🎯 發現目標 ({state.get('vlm_fall_reason_item')})，正在打包至 [{target_category}] 供未來 DETR 專項重訓...")
+            print(f"💾 [Node: Active Learning] 🎯 發現目標 ({state.get('vlm_fall_reason_item')})，正在打包至 [{target_category}] 供未來 RT-DETR 專項重訓...")
             do_package = True
         else:
             print("⏭️ [Node: Active Learning] 畫面中未發現輪椅或床鋪，跳過主動學習打包。")
@@ -443,6 +450,10 @@ def route_decision(state: AgentState) -> str:
         return END
 
     if state["alert_type"] == "Routine_Environment_Sanity_Check":
+        return "vlm_review"
+        
+    if state["alert_type"] == "fall":
+        # 送到 Kafka 的跌倒事件都是 YOLO 信心偏低需要複審的，所以一律進 VLM
         return "vlm_review"
 
     score = state["highest_score"]
@@ -521,7 +532,13 @@ if __name__ == "__main__":
         result = app.invoke(initial_state)
         
         # 若需要外發報告，發送到第二級 Kafka 管道供前端顯示
-        if result.get("should_send_report", True) and result.get("raw_report") is not None:
+        # 如果是誤報 (severity == "low")，則不發送以避免前端彈出警報
+        should_send = result.get("should_send_report", True)
+        if result.get("severity") == "low":
+            print(f"🛑 [VLM 攔截] 判定為誤報 (Low Severity)，已攔截該警報，不再發送至前端！")
+            should_send = False
+
+        if should_send and result.get("raw_report") is not None:
             iso_detected_at = event_data.get("detected_at", time.strftime("%Y-%m-%dT%H:%M:%S"))
             
             hazard_obj = result.get('vlm_fall_reason_item')

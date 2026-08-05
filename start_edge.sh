@@ -94,10 +94,10 @@ else
     if [ -f "$TEST_VIDEO_1" ]; then
         echo "🎥 [展示模式] 未設定攝影機，啟動四宮格多路推流 (Demo Mode)"
         pkill -f "ffmpeg.*rtsp://localhost:8554" >/dev/null 2>&1
-        nohup ffmpeg -nostdin -re -i "$TEST_VIDEO_1" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_0 > /dev/null 2>&1 &
-        nohup ffmpeg -nostdin -re -i "$TEST_VIDEO_2" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_1 > /dev/null 2>&1 &
-        nohup ffmpeg -nostdin -re -i "$TEST_VIDEO_3" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_2 > /dev/null 2>&1 &
-        nohup ffmpeg -nostdin -re -i "$TEST_VIDEO_4" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_3 > /dev/null 2>&1 &
+        nohup ffmpeg -nostdin -re -stream_loop -1 -i "$TEST_VIDEO_1" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_0 > /dev/null 2>&1 &
+        nohup ffmpeg -nostdin -re -stream_loop -1 -i "$TEST_VIDEO_2" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_1 > /dev/null 2>&1 &
+        nohup ffmpeg -nostdin -re -stream_loop -1 -i "$TEST_VIDEO_3" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_2 > /dev/null 2>&1 &
+        nohup ffmpeg -nostdin -re -stream_loop -1 -i "$TEST_VIDEO_4" -vf "scale=1280:720" -an -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -r 30 -f rtsp rtsp://localhost:8554/cam_3 > /dev/null 2>&1 &
         sleep 2
     fi
 fi
