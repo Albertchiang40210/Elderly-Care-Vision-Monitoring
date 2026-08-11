@@ -80,16 +80,16 @@ elif [ "$USE_WEBCAM" != "0" ]; then
     sleep 3
 else
     # Stage Demo 版：強制播放 4 個測試影片供四宮格使用
-    TEST_VIDEO_1="$BASE_DIR/Fall/test_demo/test1.mp4"
-    TEST_VIDEO_2="$BASE_DIR/Fall/test_demo/test2.mp4"
-    TEST_VIDEO_3="$BASE_DIR/Fall/test_demo/test3.mp4"
-    TEST_VIDEO_4="$BASE_DIR/Fall/test_demo/test4.mp4"
+    TEST_VIDEO_1="$BASE_DIR/Fall/test_demo/test1.MOV"
+    TEST_VIDEO_2="$BASE_DIR/Fall/test_demo/test2.MOV"
+    TEST_VIDEO_3="$BASE_DIR/Fall/test_demo/test3.MOV"
+    TEST_VIDEO_4="$BASE_DIR/Fall/test_demo/test4.MOV"
     
-    # 暫時以 test1.mp4 作為預設影片，避免檔案不存在導致 ffmpeg 崩潰
-    [ ! -f "$TEST_VIDEO_1" ] && TEST_VIDEO_1="$BASE_DIR/Fall/test_demo/test1.mp4"
-    [ ! -f "$TEST_VIDEO_2" ] && TEST_VIDEO_2="$BASE_DIR/Fall/test_demo/test1.mp4"
-    [ ! -f "$TEST_VIDEO_3" ] && TEST_VIDEO_3="$BASE_DIR/Fall/test_demo/test1.mp4"
-    [ ! -f "$TEST_VIDEO_4" ] && TEST_VIDEO_4="$BASE_DIR/Fall/test_demo/test1.mp4"
+    # 暫時以 test1.MOV 作為預設影片，避免檔案不存在導致 ffmpeg 崩潰
+    [ ! -f "$TEST_VIDEO_1" ] && TEST_VIDEO_1="$BASE_DIR/Fall/test_demo/test1.MOV"
+    [ ! -f "$TEST_VIDEO_2" ] && TEST_VIDEO_2="$BASE_DIR/Fall/test_demo/test1.MOV"
+    [ ! -f "$TEST_VIDEO_3" ] && TEST_VIDEO_3="$BASE_DIR/Fall/test_demo/test1.MOV"
+    [ ! -f "$TEST_VIDEO_4" ] && TEST_VIDEO_4="$BASE_DIR/Fall/test_demo/test1.MOV"
 
     if [ -f "$TEST_VIDEO_1" ]; then
         echo "🎥 [展示模式] 未設定攝影機，啟動四宮格多路推流 (Demo Mode)"

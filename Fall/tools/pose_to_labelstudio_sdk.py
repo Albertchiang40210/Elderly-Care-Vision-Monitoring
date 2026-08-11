@@ -39,7 +39,7 @@ PASSWORD = os.getenv("LABEL_STUDIO_PASSWORD", "")
 
 # 骨架模型路徑
 ACTIVE_MODEL_PATH = str(PROJECT_ROOT / "active_learning_pose_dataset" / "models" / "yolo_pose" / "best.pt")
-DEFAULT_MODEL_PATH = str(PROJECT_ROOT / "yolo11s-pose.pt")
+DEFAULT_MODEL_PATH = str(PROJECT_ROOT / "yolo11m-pose.pt")
 MODEL_PATH = ACTIVE_MODEL_PATH if os.path.exists(ACTIVE_MODEL_PATH) else DEFAULT_MODEL_PATH
 
 # 🎯 指定抓取 VLM 判定為「誤報」的跌倒資料夾 (專屬 Label Studio 隔離區)

@@ -48,7 +48,7 @@ EVENT_API_KEY = os.getenv("EVENT_API_KEY", "")
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 KAFKA_TOPIC = "processed-reports"
 KAFKA_GROUP_ID = "fulilian-backend"
-EVENTS_URL = os.getenv("EVENTS_URL", "http://localhost:8000/events")
+EVENTS_URL = os.getenv("EVENTS_URL", "http://localhost:8010/events")
 RETRY_SLEEP_SECONDS = 5
 
 

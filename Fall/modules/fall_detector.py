@@ -152,7 +152,7 @@ class FallDetectorLogic:
                     "vlm_triggered": False,
                     "standing_recovery_count": 0,
                     "kpts_sequence": collections.deque(maxlen=30),
-                    "action_vote_buffer": collections.deque(maxlen=10),
+                    "action_vote_buffer": collections.deque(maxlen=4),
                     "last_stable_action": "Tracking",
                     "prev_center": None
                 }
@@ -245,27 +245,36 @@ class FallDetectorLogic:
                 except Exception as e:
                     pass
             
-            # 防呆機制：如果 Transformer 預測 Fall，但物理骨架明確顯示人在站立或自然下垂，則拒絕該預測
+            # 防呆機制 1：如果 Transformer 預測 Fall，但物理骨架明確顯示人在站立或自然下垂，則拒絕該預測
             if pred_label_transformer == "fall" and hip_leg_y_dist is not None and hip_leg_y_dist > 0.25:
                 pred_label_transformer = "normal"
+                
+            # 防呆機制 2：強勢站立保護。如果上半身是直挺的 (body_angle > 55度)，代表不是躺平或跌倒
+            if body_angle is not None and body_angle > 55.0:
+                if pred_label_transformer == "fall":
+                    pred_label_transformer = "normal"  # 校正 AI 誤判，站直不可能跌倒
                 
             # 如果垂直落差超過 20% 的框高 (腿部自然下垂)，強制否定跌倒
             if hip_leg_y_dist is not None and hip_leg_y_dist > 0.20:
                 body_is_wide = False
                 torso_is_horizontal = False
                 
-            # 蜷縮狀態: 骨盆與腿部最低點幾乎在同一水平面 (必須 >= -0.1 避免極度異常的跳動)
+            # 蜷縮狀態: 骨盆與腿部最低點幾乎在同一水平面
             is_crumpled = False
             if hip_leg_y_dist is not None:
-                is_crumpled = (-0.1 <= hip_leg_y_dist <= 0.15)
+                # 將門檻從 0.15 降至 0.08，避免把深坐姿當成蜷縮
+                is_crumpled = (-0.1 <= hip_leg_y_dist <= 0.08)
                 
-            is_physically_lying = torso_is_horizontal or body_is_wide or is_crumpled
+            # 如果判定為強勢坐下，則無條件取消物理躺臥判斷
+            is_confident_sit = (pred_label_transformer == "sitdown" and pred_conf_val > 0.5) or (body_angle is not None and body_angle > 55.0)
+            
+            is_physically_lying = (torso_is_horizontal or body_is_wide or is_crumpled) and not is_confident_sit
             
             # 【動態融合 AI 與物理】: 
             # 1. 物理特徵判定為躺臥。
             # 2. 或者 Action Transformer (AI 模型) 高度自信認為是 Fall (解決 Z 軸跌倒問題)。
-            # 將自信心門檻從 0.6 提高到 0.8，避免把快速彎腰等假動作誤判為跌倒
-            is_ai_fall = (pred_label_transformer == "fall" and pred_conf_val > 0.8)
+            # 將自信心門檻從 0.8 提高到 0.85，並且排除坐姿
+            is_ai_fall = (pred_label_transformer == "fall" and pred_conf_val > 0.85) and not is_confident_sit
             
             if pose_was_updated:
                 if is_physically_lying or is_ai_fall:
@@ -334,55 +343,59 @@ class FallDetectorLogic:
                 
                 if should_trigger_fall or (p_state["ever_detected_fall"] and p_state["standing_recovery_count"] < 150):
                     action_label = "Fall"
-                elif pred_label_transformer is not None and pred_conf_val > 0.5:
-                    # 優先採納 User 訓練的 6 分類模型結果，顯示在 UI 上
-                    transformer_mapping = {
-                        "fall": "Fall",
-                        "sitdown": "Sitting",
-                        "squat": "Squatting",
-                        "walk": "Walking",
-                        "normal": "Normal",
-                        "kneel": "Kneeling"
-                    }
-                    action_label = transformer_mapping.get(pred_label_transformer, "Normal")
-                elif body_angle is not None and box_aspect_ratio is not None:
-                    if body_angle >= 68.0:
-                        # 身體站直 → 判斷是站著(Normal)還是走路(Walking)
-                        # 用 bbox 中心點位移與大小變化判斷是否有在移動 (包含走向鏡頭)
-                        cx = (float(smooth_box[0]) + float(smooth_box[2])) / 2
-                        cy = (float(smooth_box[1]) + float(smooth_box[3])) / 2
-                        bw = abs(float(smooth_box[2]) - float(smooth_box[0]))
-                        bh = abs(float(smooth_box[3]) - float(smooth_box[1]))
-                        is_moving = False
-                        
-                        if p_state["prev_center"] is not None:
-                            if len(p_state["prev_center"]) >= 4:
-                                dx = abs(cx - p_state["prev_center"][0])
-                                dy = abs(cy - p_state["prev_center"][1])
-                                dw = abs(bw - p_state["prev_center"][2])
-                                dh = abs(bh - p_state["prev_center"][3])
-                                # 像素位移 > 3px，或是框的大小變化 > 2px (代表正向走來)
-                                if (dx + dy > 3.0) or (dw + dh > 2.0):
-                                    is_moving = True
-                            elif len(p_state["prev_center"]) == 2:
-                                dx = abs(cx - p_state["prev_center"][0])
-                                dy = abs(cy - p_state["prev_center"][1])
-                                if dx + dy > 3.0:
-                                    is_moving = True
-                                
-                        p_state["prev_center"] = (cx, cy, bw, bh)
-                        action_label = "Walking" if is_moving else "Normal"
-                    elif body_angle < 60.0 and body_angle >= 35.0:
-                        # 彎腰時肩膀和骨盆的夾角會明顯變小
-                        action_label = "Bending"
-                    elif box_aspect_ratio > 0.6 and body_angle < 85.0:
-                        # 坐著的人寬高比會比站著大，但上半身相對直立 (角度通常 > 60)
-                        action_label = "Sitting"
-                    else:
-                        # 如果角度小於 35度 (躺平)，維持 Fall 或視為 Bending，不能是 Normal
-                        action_label = "Fall" if box_aspect_ratio > 1.0 else "Bending"
                 else:
                     action_label = "Normal"
+                    if pred_label_transformer is not None and pred_conf_val > 0.5:
+                        # 優先採納 User 訓練的 6 分類模型結果，顯示在 UI 上
+                        transformer_mapping = {
+                            "fall": "Fall",
+                            "sitdown": "Sitting",
+                            "squat": "Squatting",
+                            "walk": "Walking",
+                            "normal": "Normal",
+                            "kneel": "Kneeling"
+                        }
+                        action_label = transformer_mapping.get(pred_label_transformer, "Normal")
+                    
+                    # 物理規則覆寫：如果 AI 認為是 Normal 或 Walking，但我們透過物理特徵(位移)偵測到人在移動，強制改為 Walking
+                    if body_angle is not None and box_aspect_ratio is not None:
+                        if body_angle >= 68.0:
+                            cx = (float(smooth_box[0]) + float(smooth_box[2])) / 2
+                            cy = (float(smooth_box[1]) + float(smooth_box[3])) / 2
+                            bw = abs(float(smooth_box[2]) - float(smooth_box[0]))
+                            bh = abs(float(smooth_box[3]) - float(smooth_box[1]))
+                            is_moving = False
+                            
+                            if p_state["prev_center"] is not None:
+                                if len(p_state["prev_center"]) >= 4:
+                                    dx = abs(cx - p_state["prev_center"][0])
+                                    dy = abs(cy - p_state["prev_center"][1])
+                                    dw = abs(bw - p_state["prev_center"][2])
+                                    dh = abs(bh - p_state["prev_center"][3])
+                                    if (dx + dy > 3.0) or (dw + dh > 2.0):
+                                        is_moving = True
+                                elif len(p_state["prev_center"]) == 2:
+                                    dx = abs(cx - p_state["prev_center"][0])
+                                    dy = abs(cy - p_state["prev_center"][1])
+                                    if dx + dy > 3.0:
+                                        is_moving = True
+                                    
+                            p_state["prev_center"] = (cx, cy, bw, bh)
+                            if is_moving and action_label in ["Normal", "Sitting"]:
+                                action_label = "Walking"
+                                
+                        # 防呆機制：如果 AI 預測是 Sitting，但物理特徵非常像站立(細長且相對直立)，就否決 AI
+                        if action_label == "Sitting" and box_aspect_ratio is not None and body_angle is not None:
+                            if box_aspect_ratio < 0.55 and body_angle > 55.0:
+                                action_label = "Bending" if body_angle < 70.0 else "Normal"
+                                
+                        if action_label == "Normal": # 如果 AI 沒抓到，物理特徵來補救
+                            if body_angle < 60.0 and body_angle >= 35.0:
+                                action_label = "Bending"
+                            elif box_aspect_ratio > 0.6 and body_angle < 85.0:
+                                action_label = "Sitting"
+                            elif body_angle < 35.0:
+                                action_label = "Fall" if box_aspect_ratio > 1.0 else "Bending"
                 
                 # Transformer AI 輔助：收集骨架供未來使用
                 if smooth_kpts is not None:
@@ -390,6 +403,22 @@ class FallDetectorLogic:
                     norm_kpts[:, 0] /= self.img_w
                     norm_kpts[:, 1] /= self.img_h
                     p_state["kpts_sequence"].append(norm_kpts)
+                    
+                # === 時間平滑投票機制 (Action Vote Buffer) ===
+                # 收集最近 10 幀的判定結果，取多數決，過濾掉一閃而過的雜訊誤判
+                p_state["action_vote_buffer"].append(action_label)
+                if len(p_state["action_vote_buffer"]) >= 3:
+                    # 如果「跌倒」被觸發，保持最高優先級，絕對不能被投票機制蓋掉
+                    if should_trigger_fall or action_label == "Fall":
+                        final_action_label = "Fall"
+                    else:
+                        from collections import Counter
+                        votes = Counter(p_state["action_vote_buffer"])
+                        final_action_label = votes.most_common(1)[0][0]
+                else:
+                    final_action_label = action_label
+                    
+                p_state["last_stable_action"] = final_action_label
 
 
                 persons_out_list.append({
@@ -398,7 +427,7 @@ class FallDetectorLogic:
                     "conf": round(float(active_conf), 2),
                     "action_conf": round(float(base_action_conf), 2),
                     "vlm_conf": round(float(vlm_conf), 2),
-                    "action": action_label,
+                    "action": final_action_label,
                     "kps": _kp_2d,
                     "keypoints": _kp_2d,
                     "keypoints_detailed": _kp_dict_list,

@@ -28,9 +28,9 @@ def main():
     os.makedirs(act_repo_dir, exist_ok=True)
     
     print("--------------------------------------------------")
-    print("Step 1: 正在匯出 YOLO Pose (yolo11s-pose.pt) 至 ONNX...")
+    print("Step 1: 正在匯出 YOLO Pose (yolo11m-pose.pt) 至 ONNX...")
     # YOLO Pose 檔案路徑
-    yolo_pt_path = os.path.join(base_dir, "yolo11s-pose.pt")
+    yolo_pt_path = os.path.join(base_dir, "yolo11m-pose.pt")
     if os.path.exists(yolo_pt_path):
         model_yolo = YOLO(yolo_pt_path)
         # 導出為 ONNX 格式，固定輸入尺寸 640x640，opset=16 確保相容性

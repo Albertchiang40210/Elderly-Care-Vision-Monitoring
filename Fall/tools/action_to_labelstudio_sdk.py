@@ -34,7 +34,7 @@ LS_URL = os.getenv("LS_URL", "http://localhost:8080")
 USERNAME = os.getenv("LABEL_STUDIO_USERNAME", "wang4021096@gmail.com")  
 PASSWORD = os.getenv("LABEL_STUDIO_PASSWORD", "")     
 
-DEFAULT_MODEL_PATH = str(PROJECT_ROOT / "yolo11s-pose.pt")
+DEFAULT_MODEL_PATH = str(PROJECT_ROOT / "yolo11m-pose.pt")
 CONF_THRES = float(os.getenv("CONF_THRES", "0.25"))
 
 def fail(msg: str) -> None:

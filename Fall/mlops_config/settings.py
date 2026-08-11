@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     # ==========================
     # 特徵提取設定 (YOLO-Pose)
     # ==========================
-    POSE_MODEL_PATH: Path = BASE_DIR / "yolo11s-pose.pt"
+    POSE_MODEL_PATH: Path = BASE_DIR / "yolo11m-pose.pt"
     CONF_THRES: float = 0.25
     SEQ_LENGTH: int = 30
     STRIDE: int = 5

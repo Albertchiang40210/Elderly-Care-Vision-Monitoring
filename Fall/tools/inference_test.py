@@ -110,7 +110,7 @@ def get_latest_model(base_dir):
 # 1. 查找最新訓練出的 YOLO Pose 模型
 custom_pose_dir = os.path.join(PROJECT_ROOT, "active_learning_pose_dataset", "models", "yolo_pose", "Fall_Detection")
 custom_pose = get_latest_model(custom_pose_dir)
-pose_model_name = custom_pose if custom_pose else "yolo11s-pose.pt"
+pose_model_name = custom_pose if custom_pose else "yolo11m-pose.pt"
 print(f"🦴 [Model Loader] YOLO Pose 載入路徑: {pose_model_name}")
 
 coreml_model_name = "yolo11s-pose.mlpackage"
@@ -232,12 +232,12 @@ def camera_worker(camera_id, video_source):
 
     print(f"🚀 鏡頭頻道 [{camera_id}] 啟動拉流：{video_source}")
     video_map = {
-        "cam_0": "test1.mp4",
-        "cam_1": "test2.mp4",
-        "cam_2": "test3.mp4",
-        "cam_3": "test4.mp4"
+        "cam_0": "test1.MOV",
+        "cam_1": "test2.MOV",
+        "cam_2": "test3.MOV",
+        "cam_3": "test4.MOV"
     }
-    demo_video_name = video_map.get(camera_id, "test1.mp4")
+    demo_video_name = video_map.get(camera_id, "test1.MOV")
     demo_video_path = os.path.join(PROJECT_ROOT, "Fall", "test_demo", demo_video_name)
     
     cap = None
@@ -413,7 +413,7 @@ def camera_worker(camera_id, video_source):
             
             if not yolo_pose_success:
                 # 使用 ByteTrack 多人追蹤
-                results_pose = local_yolo_pose_model.track(frame, persist=True, tracker="bytetrack.yaml", verbose=False, conf=0.08, device=device)
+                results_pose = local_yolo_pose_model.track(frame, persist=True, tracker="bytetrack.yaml", verbose=False, conf=0.25, device=device)
 
             last_annotated_frame = frame.copy()
 
@@ -580,6 +580,14 @@ def camera_worker(camera_id, video_source):
                                 print(f"⚡ [{camera_id}] (ID:{track_id}) 【秒級即時告警】跌倒通知已 0 延遲轟入後端！")
                         except Exception:
                             pass
+                        
+                        # 讓高信心警報也進入 Kafka 進行 VLM 分析，以取得詳細報告
+                        if producer is not None:
+                            try:
+                                producer.send('nursing-home-alerts', value=instant_payload)
+                                producer.flush()
+                            except Exception:
+                                pass
                     else:
                         if producer is not None:
                             instant_payload["vlm_summary"] = None
