@@ -56,6 +56,7 @@ const MAIN_NAV: { to: string; label: string; exact?: boolean; icon: IconComponen
   { to: '/', label: '首頁', exact: true, icon: HomeIcon },
   { to: '/hazards', label: '環境巡檢', icon: MonitorIcon },
   { to: '/analysis', label: '數據分析', icon: ChartIcon },
+  { to: '/system-monitor', label: '設備監控', icon: GearIcon },
   { to: '/events', label: '事件中心', icon: BellIcon },
 ];
 

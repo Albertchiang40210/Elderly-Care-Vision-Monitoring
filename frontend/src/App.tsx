@@ -14,6 +14,7 @@ import { Home } from './pages/Home';
 import HazardDetection from './pages/HazardDetection';
 import { DataAnalysis } from './pages/DataAnalysis';
 import { Login } from './pages/Login';
+import SystemMonitor from './pages/SystemMonitor';
 import { ReportFormPage } from './pages/ReportFormPage';
 import { ReportPreview } from './pages/ReportPreview';
 import { ReportGeneration } from './pages/ReportGeneration';
@@ -50,6 +51,7 @@ function App() {
         <Route path="/" element={<Home />} />
         <Route path="/hazards" element={<HazardDetection />} />
         <Route path="/analysis" element={<DataAnalysis />} />
+        <Route path="/system-monitor" element={<SystemMonitor />} />
         <Route path="/events" element={<EventCenter />} />
         <Route path="/events/:id" element={<EventDetail />} />
         <Route path="/hazards/:id" element={<HazardDetail />} />

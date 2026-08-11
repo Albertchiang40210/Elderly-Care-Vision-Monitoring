@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import CameraStream from '../components/CameraStream';
 import { getCameras } from '../api/cameras';
 import type { Camera } from '../types';
@@ -35,7 +35,7 @@ export default function HazardDetection() {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both">
       {/* 標題與操作區 */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
             環境安全巡檢
@@ -46,6 +46,15 @@ export default function HazardDetection() {
           <p className="mt-2 text-sm text-gray-400">
             基於 RT-DETR 架構即時辨識走道病床、輪椅等環境物品，避免動線阻塞。
           </p>
+        </div>
+
+        {/* Edge AI 系統資源動態微型指標 (Demo用) */}
+        <div className="hidden lg:flex flex-col items-end gap-1.5 pt-1">
+          <div className="text-[10px] font-semibold text-[#00c3ff] tracking-widest uppercase opacity-80">Edge AI 負載狀態</div>
+          <div className="flex gap-2 opacity-90 hover:opacity-100 transition-opacity">
+            <embed src="http://localhost:19999/api/v1/badge.svg?chart=system.cpu&refresh=auto_1" type="image/svg+xml" height="22" />
+            <embed src="http://localhost:19999/api/v1/badge.svg?chart=system.ram&refresh=auto_1" type="image/svg+xml" height="22" />
+          </div>
         </div>
         
         {/* 手機版下拉選單 */}

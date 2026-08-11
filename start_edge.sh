@@ -17,14 +17,14 @@ echo "⚙️ [1/4] 啟動後端 FastAPI 與警報接送端..."
 pkill -f "python.*kafka_consumer.py" >/dev/null 2>&1
 (cd "$BASE_DIR/backend" && nohup "$BASE_DIR/Fall/.venv/bin/python" kafka_consumer.py > "$BASE_DIR/kafka_consumer.log" 2>&1 &)
 
-if ! curl -s http://localhost:8000/docs >/dev/null 2>&1; then
-    pkill -f "uvicorn.*main:app" >/dev/null 2>&1
-    (cd "$BASE_DIR/backend" && nohup "$BASE_DIR/Fall/.venv/bin/python" -m uvicorn main:app --host 0.0.0.0 --port 8000 > "$BASE_DIR/backend.log" 2>&1 &)
+if ! curl -s http://localhost:8010/docs >/dev/null 2>&1; then
+    pkill -f "uvicorn main:app --host 0.0.0.0 --port 8010" >/dev/null 2>&1
+    (cd "$BASE_DIR/backend" && nohup "$BASE_DIR/Fall/.venv/bin/python" -m uvicorn main:app --host 0.0.0.0 --port 8010 > "$BASE_DIR/backend.log" 2>&1 &)
 fi
 
 # 2. 啟動前端 Web 介面
 echo "💻 [2/4] 啟動前端 Web 即時戰情室..."
-if ! curl -s http://localhost:3000 >/dev/null 2>&1 && ! curl -s http://localhost:5173 >/dev/null 2>&1; then
+if ! curl -s http://localhost:5173 >/dev/null 2>&1; then
     pkill -f "vite" >/dev/null 2>&1
     (cd "$BASE_DIR/frontend" && nohup npm run dev > "$BASE_DIR/frontend.log" 2>&1 &)
 fi

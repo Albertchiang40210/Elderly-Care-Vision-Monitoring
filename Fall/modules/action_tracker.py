@@ -34,7 +34,7 @@ class ActionTracker:
             if os.path.exists(pt_path) and os.path.exists(label_map_path):
                 with open(label_map_path, "r") as f:
                     label_map = json.load(f)
-                self.id_to_label = {v: k for k, v in label_map.items()}
+                self.id_to_label = {int(k): v for k, v in label_map.items()}
                 
                 self.action_model = ActionTransformer(
                     num_classes=len(label_map),
@@ -81,7 +81,7 @@ class ActionTracker:
             with torch.no_grad():
                 logits = self.action_model(seq_tensor)
                 probs = torch.softmax(logits, dim=1)
-                pred_class_idx = torch.argmax(probs, dim=1).item()
+                pred_class_idx = int(torch.argmax(probs, dim=1).item())
                 
             return self.id_to_label.get(pred_class_idx, "normal")
             

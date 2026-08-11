@@ -14,6 +14,6 @@ output [
   {
     name: "action_logits"
     data_type: TYPE_FP32
-    dims: [ 3 ]
+    dims: [ 7 ]
   }
 ]

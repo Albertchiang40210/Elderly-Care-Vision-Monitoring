@@ -125,20 +125,14 @@ if not custom_pose and not os.path.exists(coreml_model_name) and os.path.exists(
     except Exception as e:
         print(f"⚠️ CoreML 導出失敗: {e}，將使用原生 CPU 模式。")
         
-# 使用 PyTorch 格式 YOLO Pose，確保 .keypoints.xy 正確輸出
-yolo_pose_model = YOLO(pose_model_name)
-
-try:
-    if not coreml_model_name in str(yolo_pose_model.ckpt_path if hasattr(yolo_pose_model, 'ckpt_path') else ''):
-        yolo_pose_model.to(device)
-except Exception:
-    pass
+# YOLO model will be instantiated inside the worker to avoid thread-safety issues
+# during concurrent model.fuse() calls.
 
 output_frames = {}
 frames_lock = threading.Lock()
 
 # ─── 🎯 動態/即時畫框數據推送 ────────────────────
-_BACKEND_DETECT_URL = "http://localhost:8000/events/live-detection"
+_BACKEND_DETECT_URL = "http://localhost:8010/events/live-detection"
 
 def _push_detection(payload_dict: dict):
     try:
@@ -171,7 +165,7 @@ _detection_bg_thread.start()
 # 📹 核心：多鏡頭 Edge Worker (精簡純淨版：姿態跌倒 + 模組 G 環境巡檢)
 # =========================================================================
 def _async_process_video(frames, video_path, snapshot_path, cam_id, num_id, prod, export_fps):
-    print(f"\n🎬 [{cam_id}] 異步背景合成前後 10 秒影片 ({len(frames)} 幀, 寫入幀率: {export_fps:.1f} FPS)...")
+    print(f"\n🎬 [{cam_id}] 異步背景合成前後 20 秒影片 ({len(frames)} 幀, 寫入幀率: {export_fps:.1f} FPS)...")
     try:
         if not frames: return
         frame_w, frame_h = 640, 360
@@ -203,17 +197,21 @@ def _async_process_video(frames, video_path, snapshot_path, cam_id, num_id, prod
         if os.path.exists(temp_raw_path):
             os.remove(temp_raw_path)
             
-        print(f"✅ [{cam_id}] 10 秒片段影片成功歸檔 (Web 完美相容)！")
+        print(f"✅ [{cam_id}] 20 秒片段影片成功歸檔 (Web 完美相容)！")
     except Exception as async_err:
         print(f"❌ [{cam_id}] 背景處理影片失敗: {async_err}")
 
 def camera_worker(camera_id, video_source):
     global producer, device, output_frames, frames_lock, triton_client, pose_model_name
     from ultralytics import YOLO, RTDETR
+    
+    # 每個執行緒擁有獨立的 YOLO 模型實例，避免多執行緒同時呼叫 fuse() 導致 KeyError/AttributeError
+    print(f"🦴 [{camera_id}] 載入專屬 YOLO Pose 模型...")
     local_yolo_pose_model = YOLO(pose_model_name)
     try:
         local_yolo_pose_model.to(device)
-    except: pass
+    except Exception:
+        pass
 
     # 2. 暫時使用原廠預設的 RT-DETR 模型 (因為目前缺乏醫院真實場景訓練資料)
     detr_model_path = os.path.join(PROJECT_ROOT, "rtdetr-l.pt")
@@ -283,14 +281,15 @@ def camera_worker(camera_id, video_source):
     if fps <= 0 or np.isnan(fps) or fps < 24.0: fps = 30.0
     frame_delay = 1.0 / fps  
 
-    PRE_SEC = 5
-    POST_SEC = 5
+    PRE_SEC = 10
+    POST_SEC = 10
     MAX_PRE_FRAMES = int(fps * PRE_SEC)
     MAX_POST_FRAMES = int(fps * POST_SEC)
     
     pre_video_buffer = deque(maxlen=MAX_PRE_FRAMES)
     post_video_buffer = []
     is_recording_post = False
+    recording_fallen_id = None
     post_frame_count = 0
 
     frame_count = 0
@@ -298,21 +297,20 @@ def camera_worker(camera_id, video_source):
     fps_calc_counter = 0
     measured_fps = 0.0
     
-    if camera_id == "cam_0":
-        numeric_id = 1
-        location_str = "301 病房"
-    elif camera_id == "cam_1":
-        numeric_id = 2
-        location_str = "301 病房"
-    elif camera_id == "cam_2":
-        numeric_id = 3
-        location_str = "走廊"
-    elif camera_id == "cam_3":
-        numeric_id = 4
-        location_str = "交誼廳"
+    # 相機位置設定：支援環境變數覆蓋，格式 CAM_META_cam_0="1:301 病房"
+    # 預設值對應實體安裝位置，部署時可直接透過 .env 調整，不需改動程式碼
+    _DEFAULT_CAM_META = {
+        "cam_0": (1, "301 病房"),
+        "cam_1": (2, "301 病房"),
+        "cam_2": (3, "走廊"),
+        "cam_3": (4, "交誼廳"),
+    }
+    _meta_str = os.environ.get(f"CAM_META_{camera_id}")
+    if _meta_str and ":" in _meta_str:
+        _parts = _meta_str.split(":", 1)
+        numeric_id, location_str = int(_parts[0]), _parts[1]
     else:
-        numeric_id = 1
-        location_str = "301 病房"
+        numeric_id, location_str = _DEFAULT_CAM_META.get(camera_id, (1, "301 病房"))
     
     results_pose = None
     last_annotated_frame = None
@@ -384,11 +382,11 @@ def camera_worker(camera_id, video_source):
         if not ret:
             if is_recording_post and 'final_video_path' in locals():
                 is_recording_post = False
-                full_10_sec_frames = list(pre_video_buffer) + list(post_video_buffer)
+                full_20_sec_frames = list(pre_video_buffer) + list(post_video_buffer)
                 actual_export_fps = measured_fps if measured_fps > 5.0 else 15.0
                 threading.Thread(
                     target=_async_process_video,
-                    args=(full_10_sec_frames, final_video_path, final_snapshot_path, camera_id, numeric_id, producer, actual_export_fps),
+                    args=(full_20_sec_frames, final_video_path, final_snapshot_path, camera_id, numeric_id, producer, actual_export_fps),
                     daemon=True
                 ).start()
                 
@@ -397,14 +395,6 @@ def camera_worker(camera_id, video_source):
             else:
                 print(f"❌ [{camera_id}] 影像流已結束")
                 break
-            
-            # 重製計數器，防止迴圈重新開始時殘留狀態
-            if detector is not None:
-                detector.reset_states()
-
-            if not is_recording_post:
-                post_video_buffer.clear()
-            continue
 
         img_h, img_w, _ = frame.shape
         if img_w != 1280 or img_h != 720:
@@ -412,11 +402,6 @@ def camera_worker(camera_id, video_source):
             img_h, img_w = 720, 1280
 
         frame_count += 1
-        pre_video_buffer.append(frame)
-
-        if is_recording_post:
-            post_video_buffer.append(frame)
-            post_frame_count += 1
 
         pose_was_updated = frame_count % 4 == 0 or results_pose is None
         if pose_was_updated:
@@ -512,14 +497,17 @@ def camera_worker(camera_id, video_source):
             smooth_kpts = p_data.get("smooth_kpts")
             
             # 繪製單人邊框與骨架 (已移除 OpenCV 原生繪製，全權交給前端 Canvas 繪製以避免重疊與座標錯位)
-            # 確保原始影片乾淨無瑕疵，方便日後做醫療或法庭證據回放
-            color = (0, 0, 255) if should_trigger_fall else (0, 255, 0)
+            # 只針對跌倒者畫紅框，其他人不畫框，保持畫面乾淨
             if smooth_box is not None:
                 try:
                     bx1, by1 = int(float(smooth_box[0])), int(float(smooth_box[1]))
-                    # 我們依然可以在畫面上保留小小的 ID 標籤，方便 debug，但不畫框和骨架
-                    p_label = f"ID:{track_id} {active_conf:.2f}"
-                    cv2.putText(annotated_frame, p_label, (bx1, max(by1 - 8, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA)
+                    bx2, by2 = int(float(smooth_box[2])), int(float(smooth_box[3]))
+                    
+                    # 如果這是在錄影期間，而且這正是觸發警報的那個人；或是剛好判定為跌倒的瞬間
+                    if (is_recording_post and track_id == recording_fallen_id) or should_trigger_fall:
+                        cv2.rectangle(annotated_frame, (bx1, by1), (bx2, by2), (0, 0, 255), 4) # 粗紅框
+                        p_label = f"ID:{track_id} {active_conf:.2f}"
+                        cv2.putText(annotated_frame, p_label, (bx1, max(by1 - 10, 25)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
                 except Exception:
                     pass
                     
@@ -546,6 +534,7 @@ def camera_worker(camera_id, video_source):
                     last_alert_time = current_time
                     if not is_recording_post:
                         is_recording_post = True
+                        recording_fallen_id = track_id
                         post_frame_count = 0
                         post_video_buffer = []
                         
@@ -585,9 +574,8 @@ def camera_worker(camera_id, video_source):
 
                     if active_conf >= 0.4:
                         try:
-                            import requests
                             headers = {"X-API-Key": VALID_API_KEY, "Content-Type": "application/json"}
-                            res = requests.post("http://localhost:8000/events", json=instant_payload, headers=headers, timeout=2.0)
+                            res = _requests.post("http://localhost:8010/events", json=instant_payload, headers=headers, timeout=2.0)
                             if res.status_code in [200, 201]:
                                 print(f"⚡ [{camera_id}] (ID:{track_id}) 【秒級即時告警】跌倒通知已 0 延遲轟入後端！")
                         except Exception:
@@ -622,10 +610,17 @@ def camera_worker(camera_id, video_source):
         else:
             cv2.putText(annotated_frame, "Normal", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3, cv2.LINE_AA)
 
+        # 將最終帶有標註的畫面存入 Buffer，供回放影片使用
+        pre_video_buffer.append(annotated_frame)
+        if is_recording_post:
+            post_video_buffer.append(annotated_frame)
+            post_frame_count += 1
+
         # 背景影片寫入邏輯
         if is_recording_post and post_frame_count >= MAX_POST_FRAMES:
             is_recording_post = False
-            full_10_sec_frames = list(pre_video_buffer) + post_video_buffer
+            recording_fallen_id = None
+            full_20_sec_frames = list(pre_video_buffer) + post_video_buffer
             
 
             if 'final_video_path' in locals():
@@ -633,7 +628,7 @@ def camera_worker(camera_id, video_source):
                 
                 threading.Thread(
                     target=_async_process_video,
-                    args=(full_10_sec_frames, final_video_path, final_snapshot_path, camera_id, numeric_id, producer, actual_export_fps),
+                    args=(full_20_sec_frames, final_video_path, final_snapshot_path, camera_id, numeric_id, producer, actual_export_fps),
                     daemon=True
                 ).start()
 

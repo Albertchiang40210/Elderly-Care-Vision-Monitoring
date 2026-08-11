@@ -188,7 +188,9 @@ def preprocess_node(state: AgentState) -> Dict[str, Any]:
     event_data = state["event_data"]
     
     alert_type = event_data.get("event_type", "Pending_VLM_Review") 
-    env_clues = event_data.get("event_type", "No specific objects") 
+    # env_clues 讀取邊緣 AI 的文字描述（vlm_summary），提供 VLM 更豐富的現場線索
+    # 若無 vlm_summary，退而取用 event_type 作為基本線索
+    env_clues = event_data.get("vlm_summary") or event_data.get("event_type", "No specific objects")
     
     dev_id = event_data.get("device_id")
     if dev_id is not None:

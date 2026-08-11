@@ -68,15 +68,26 @@ def main():
         export_params=True,
         opset_version=settings.ONNX_OPSET_VERSION, # 確保相容較新的 ONNX 算子
         do_constant_folding=True,
-        input_names=['input_sequence'],
-        output_names=['action_logits'],
+        input_names=['input'],
+        output_names=['output'],
         dynamic_axes={
-            'input_sequence': {0: 'batch_size'},
-            'action_logits': {0: 'batch_size'}
+            'input': {0: 'batch_size'},
+            'output': {0: 'batch_size'}
         }
     )
     
     print(f"\n🎉 匯出成功！ONNX 模型已儲存至: {ONNX_MODEL_PATH}")
+    
+    # 修正 Triton 23.10 不支援 IR Version 10 的問題，將其降級為 8
+    try:
+        import onnx
+        onnx_model = onnx.load(str(ONNX_MODEL_PATH))
+        onnx_model.ir_version = 8
+        onnx.save(onnx_model, str(ONNX_MODEL_PATH))
+        print(f"🔄 已成功將 ONNX IR 版本降級至 8 以相容於 Triton 23.10")
+    except ImportError:
+        print("⚠️ 未安裝 'onnx' 套件，跳過 IR 版本降級。這可能會導致 Triton Server 無法載入模型。")
+        print("   建議執行: pip install onnx")
     
     # 順便產生一份基礎的 Triton config.pbtxt 給用戶
     config_pbtxt = f"""

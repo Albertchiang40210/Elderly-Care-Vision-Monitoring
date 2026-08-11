@@ -332,10 +332,6 @@ class FallDetectorLogic:
 
                 # === 動作標籤判定 (整合物理規則與 Transformer) ===
                 
-                # 防呆機制：如果 Transformer 預測 Fall，但物理骨架明確顯示人在站立或自然下垂，則拒絕該預測
-                if pred_label_transformer == "fall" and hip_leg_y_dist is not None and hip_leg_y_dist > 0.25:
-                    pred_label_transformer = "normal"
-                
                 if should_trigger_fall or (p_state["ever_detected_fall"] and p_state["standing_recovery_count"] < 150):
                     action_label = "Fall"
                 elif pred_label_transformer is not None and pred_conf_val > 0.5:

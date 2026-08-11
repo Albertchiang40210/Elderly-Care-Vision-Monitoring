@@ -7,8 +7,10 @@
  */
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-// 直接連線至後端 Port 8000 的即時骨架 SSE 推播通道
-const DETECT_SSE = 'http://localhost:8000/events/live-detection/stream';
+import { BASE_URL } from '../api/client';
+
+// 透過 client 統一的 BASE_URL，自動適應 Vite Proxy 或是生產環境 Nginx
+const DETECT_SSE = `${BASE_URL}/events/live-detection/stream`;
 
 // COCO 17 關鍵點骨骼連線定義
 

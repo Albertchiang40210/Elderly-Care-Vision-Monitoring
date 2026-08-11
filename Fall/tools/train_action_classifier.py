@@ -91,6 +91,16 @@ def main():
         num_layers=settings.NUM_LAYERS
     ).to(device)
     
+    # ♻️ 新增：嘗試載入歷史權重進行增量學習 (Incremental Learning)
+    if MODEL_SAVE_PATH.exists():
+        print(f"♻️ 發現既有模型權重 ({MODEL_SAVE_PATH.name})，準備進行增量訓練 (Fine-tuning)...")
+        try:
+            model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=device))
+            print("✅ 成功載入歷史權重！不須從頭訓練。")
+        except Exception as e:
+            print(f"⚠️ 載入歷史權重失敗 (可能是有新增全新的動作類別導致架構改變): {e}")
+            print("➡️ 將從頭開始訓練 (Train from scratch)。")
+    
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
 

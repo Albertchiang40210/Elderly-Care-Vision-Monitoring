@@ -127,7 +127,7 @@ for idx, task in enumerate(tasks, 1):
     print(f"\n🎬 [Task {task_id}] 正在處理影片 ({idx}/{len(tasks)}): {filename} ...")
     cap = cv2.VideoCapture(str(video_path))
     
-    action_found = "normal"  # 預設為 normal
+    action_counts = {}
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret: break
@@ -135,14 +135,19 @@ for idx, task in enumerate(tasks, 1):
         results, ready_sequences = tracker.process_frame(frame, conf_thres=CONF_THRES)
         for track_id, pose_seq in ready_sequences.items():
             action_label = tracker.predict_action(pose_seq)
-            if action_label == "fall":
-                action_found = "fall"
-                break
-        
-        if action_found == "fall":
-            break # 提早結束，判定為跌倒
+            if action_label not in action_counts:
+                action_counts[action_label] = 0
+            action_counts[action_label] += 1
             
     cap.release()
+    
+    # 決定這支影片最終的標籤 (多數決)
+    if action_counts:
+        # 找出出現最多次的動作
+        action_found = max(action_counts, key=action_counts.get)
+        print(f"   => 各動作偵測次數: {action_counts}")
+    else:
+        action_found = "normal"
     print(f"🎯 AI 預測結果: {action_found.upper()}")
     
     # 建立 Prediction Payload (整支影片分類)

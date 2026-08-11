@@ -63,7 +63,7 @@ def create_report(
         report_type=body.report_type,
         form=body.form,
         created_by=current_user["sub"],  # 誰存的誰負責，從 JWT 記
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(),
     )
     db.add(report)
     db.commit()

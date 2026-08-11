@@ -14,13 +14,6 @@ output [
   {
     name: "output"
     data_type: TYPE_FP32
-    dims: [ 1, 2 ]
-  }
-]
-
-instance_group [
-  {
-    count: 1
-    kind: KIND_CPU
+    dims: [ 1, 6 ]
   }
 ]

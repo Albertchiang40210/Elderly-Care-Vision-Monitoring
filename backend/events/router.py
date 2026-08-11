@@ -17,7 +17,7 @@ try:
     from backend.core.config import EVENT_API_KEY
     from backend.core.database import get_db
     from backend.core.dependencies import get_current_user, require_admin
-    from backend.core.models import DetectEvent, Device, User
+    from backend.core.models import DetectEvent, Device, User, DetectEventReport
     from backend.events.service import handle_incoming_event, operator_names, serialize_event, watch_delivery, DeviceNotFoundError, copy_false_alarm_to_hard_negatives
     from backend.events.sse import pool, format_sse
 except ModuleNotFoundError:
@@ -26,7 +26,7 @@ except ModuleNotFoundError:
     from core.config import EVENT_API_KEY
     from core.database import get_db
     from core.dependencies import get_current_user, require_admin
-    from core.models import DetectEvent, Device, User
+    from core.models import DetectEvent, Device, User, DetectEventReport
     from events.service import handle_incoming_event, operator_names, serialize_event, watch_delivery, DeviceNotFoundError, copy_false_alarm_to_hard_negatives
     from events.sse import pool, format_sse
 
@@ -92,7 +92,7 @@ def ack_event(
     # 送達狀態記在後端 DB，給重推計時器判斷用（整套推送→ack→重推是 at-least-once 保證送達）
     # 前端打完 ack 不需要處理回應，回個小確認即可
     if event.notified_at is None:
-        event.notified_at = datetime.now(timezone.utc)
+        event.notified_at = datetime.now()
         db.commit()
 
     return {"status": "ok"}
@@ -266,6 +266,7 @@ async def stream(current_user: dict = Depends(get_user_from_query_token)):
 # ════════════════════════════════════════════════════════
 @router.delete("/events", status_code=204, dependencies=[Depends(require_admin)])
 def delete_all_events(db: Session = Depends(get_db)):
+    db.query(DetectEventReport).delete()
     db.query(DetectEvent).delete()
     db.commit()
     return None

@@ -13,7 +13,7 @@ interface SuppressConfirmModalProps {
 }
 
 export function SuppressConfirmModal({ event, onConfirm, onBack }: SuppressConfirmModalProps) {
-  const [videoEnded, setVideoEnded] = useState(false);
+  const [, setVideoEnded] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const [label, setLabel] = useState<FalseReportLabel | null>(null);
   const [note, setNote] = useState('');

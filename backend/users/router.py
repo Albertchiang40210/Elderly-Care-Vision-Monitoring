@@ -82,7 +82,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
 
     # 登入成功 → 記下這次登入時間（UTC），存回資料庫
-    user.last_login_time = datetime.now(timezone.utc)
+    user.last_login_time = datetime.now()
     db.commit()
 
     # 驗證通過 → 產生 JWT token，把員編、姓名和角色包進去

@@ -114,7 +114,7 @@ function toPendingLogEntry(event: CareEvent): AlertLogEntry {
 export function Home() {
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<number | 'all' | null>('all');
-  const [kpiSummary, setKpiSummary] = useState<KpiSummary | null>(null);
+  const [, setKpiSummary] = useState<KpiSummary | null>(null);
   const { events, alertLog, confirmedAlerts, reopenAlert, hazardEvents } = useEvents();
 
   // 合併顯示：alertLog（潛在危險偵測）＋ 現算的「待處理」

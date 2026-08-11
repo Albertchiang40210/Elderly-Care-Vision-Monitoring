@@ -5,6 +5,7 @@
 import json
 import logging
 import time
+import traceback
 
 import httpx
 
@@ -49,7 +50,6 @@ def handle_raw_message(raw, post_fn) -> str:
     try:
         response = post_fn(data)
     except Exception as err:
-        import traceback
         traceback.print_exc()
         return "retry"
 
