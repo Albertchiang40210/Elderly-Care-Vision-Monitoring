@@ -53,7 +53,7 @@ export function FullScreenAlert({ alerts, now, onAcknowledge, onSuppress, onDism
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeAlert = (activeId ? alerts.find((a) => a.id === activeId) : undefined) ?? alerts[alerts.length - 1] ?? alerts[0];
-  const { clipUrl, loading: clipLoading } = useEventClipUrl(activeAlert?.id);
+  const { clipUrl, snapshotUrl, loading: clipLoading } = useEventClipUrl(activeAlert?.id);
   const mediaSrc = clipUrl;
   const videoError = failedVideoIds.has(activeAlert.id) || !mediaSrc;
 
@@ -103,8 +103,19 @@ export function FullScreenAlert({ alerts, now, onAcknowledge, onSuppress, onDism
         {/* 影片：整寬置中 */}
         <div className="mt-4 aspect-video max-h-[45vh] w-full overflow-hidden rounded-xl bg-[var(--bg-surface-2)]">
           {clipLoading ? (
-            <div className="flex h-full items-center justify-center">
-              <span className="text-[var(--text-muted)]">載入中...</span>
+            <div className="relative flex h-full w-full items-center justify-center bg-black">
+              {snapshotUrl && (
+                <img
+                  src={snapshotUrl}
+                  alt="Snapshot Fallback"
+                  className="absolute inset-0 h-full w-full object-contain opacity-50"
+                />
+              )}
+              <div className="z-10 flex flex-col items-center gap-2 rounded-lg bg-black/70 px-4 py-2 text-white shadow-lg backdrop-blur-sm">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--brand)] border-t-transparent"></div>
+                <span className="text-sm font-medium">影片合成中...</span>
+                <span className="text-xs text-gray-300">系統正收錄事發後續動作，最長需 10 秒</span>
+              </div>
             </div>
           ) : videoError || !mediaSrc ? (
             <div className="flex h-full items-center justify-center">

@@ -140,7 +140,7 @@ class DetectEvent(Base):  # 跌倒事件主表
     )  # 結案者：按下 resolve 的人；誤報一鍵結案時與 verdict_by 同人
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.company_id"), nullable=False, default=1)
 
-    yolo_score: Mapped[Optional[float]] = mapped_column(Float)      # 該事件 YOLO 打的分數
+    action_score: Mapped[Optional[float]] = mapped_column(Float)      # 該事件 ACT/動作分析 打的分數
     vlm_summary: Mapped[Optional[str]] = mapped_column(Text)        # VLM 情境描述
     hazard_object: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # DETR 危險物品名稱（如：輪椅、拖鞋）
     detected_objects: Mapped[Optional[dict | list]] = mapped_column(JSON, nullable=True)  # DETR 偵測物件清單 JSON

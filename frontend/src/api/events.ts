@@ -36,7 +36,7 @@ export interface RawEventPayload {
   resolved_by: string | null;   // 結案者員編（同上）
   resolved_by_name: string | null;  // 結案者姓名（同上）
   company_id: number;
-  yolo_score: number;
+  action_score: number;
   vlm_summary: string | null;   // VLM 情境描述純文字（後端 DB 為 Text 欄位）
   report_stage: string | null;  // 最新一筆通報單的類型（initial/follow_up/final），無通報單為 null
   last_report_at: string | null; // 最新一筆通報單的儲存時間，續報期限由此起算
@@ -72,7 +72,7 @@ export function parseRawEvent(raw: RawEventPayload): CareEvent {
     raw.vlm_summary === null
       ? null
       : {
-          confidence: raw.yolo_score,
+          confidence: raw.action_score,
           severity: '中',
           description: raw.vlm_summary,
           suggestion: '',
@@ -95,7 +95,7 @@ export function parseRawEvent(raw: RawEventPayload): CareEvent {
     status: raw.status as EventStatus,   // 後端已對齊三態，僅換欄位名，值不轉換
     // 通報階段由後端從通報單表算出（值與前端 ReportStage 相同），前端不再自行維護
     report_stage: raw.report_stage as ReportStage | null,
-    confidence: raw.yolo_score,
+    confidence: raw.action_score,
     vlm_result,
     verdict: raw.verdict as EventVerdict, // 後端已對齊 true_alarm/false_alarm/null
     // 誤報類型與備註後端尚無對應欄位，一律 null；由前端標記誤報（resolveViaFeedback）時寫入。

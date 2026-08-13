@@ -555,7 +555,7 @@ if __name__ == "__main__":
                 "clip_path": result["clip_path"],
                 "detected_at": iso_detected_at,
                 "snapshot_path": result["img_path"],
-                "yolo_score": result["highest_score"],
+                "action_score": result["highest_score"],
                 "vlm_summary": result["raw_report"],
                 "hazard_object": hazard_obj,
                 "detected_objects": result.get("detected_objects"),

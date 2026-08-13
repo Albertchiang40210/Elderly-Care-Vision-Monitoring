@@ -51,7 +51,7 @@ class EventCreateRequest(BaseModel):
     clip_path: str
     detected_at: datetime
     snapshot_path: Optional[str] = None
-    yolo_score: Optional[float] = None
+    action_score: Optional[float] = None
     vlm_summary: Optional[str] = None
     hazard_object: Optional[str] = None
     detected_objects: Optional[dict | list] = None

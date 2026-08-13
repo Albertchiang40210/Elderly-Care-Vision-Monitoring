@@ -33,6 +33,9 @@ export function useEventClipUrl(eventId: string | undefined) {
 
           if (!media.clip_url) {
             // S3 上傳中，每 2 秒輪詢直到影片就緒。
+            if (!cancelled) {
+              setResult((prev) => ({ ...prev, id: eventId, snapshotUrl: media.snapshot_url }));
+            }
             timer = setTimeout(fetchMedia, 2000);
             return;
           }
@@ -44,7 +47,10 @@ export function useEventClipUrl(eventId: string | undefined) {
             const response = await fetch(media.clip_url, { method: 'HEAD', cache: 'no-store' });
             if (!response.ok) throw new Error(`影片尚未就緒 (${response.status})`);
           } catch {
-            if (!cancelled) timer = setTimeout(fetchMedia, 2000);
+            if (!cancelled) {
+              setResult((prev) => ({ ...prev, id: eventId, snapshotUrl: media.snapshot_url }));
+              timer = setTimeout(fetchMedia, 2000);
+            }
             return;
           }
 
@@ -58,6 +64,8 @@ export function useEventClipUrl(eventId: string | undefined) {
         });
     }
 
+    // 重置為載入中，避免切換事件時看到上一個事件的畫面
+    setResult({ id: undefined, clipUrl: null, snapshotUrl: null, error: false });
     fetchMedia();
 
     return () => {
@@ -70,10 +78,11 @@ export function useEventClipUrl(eventId: string | undefined) {
     return { clipUrl: null, snapshotUrl: null, loading: false, error: false };
   }
 
-  const loading = result.id !== eventId;
+  // 只要 clipUrl 還沒拿到，就視為 loading，但 snapshotUrl 可以提早顯示
+  const loading = result.id !== eventId || result.clipUrl === null;
   return {
     clipUrl: loading ? null : result.clipUrl,
-    snapshotUrl: loading ? null : result.snapshotUrl,
+    snapshotUrl: result.snapshotUrl, // 即使 loading 也能回傳快照
     loading,
     error: loading ? false : result.error,
   };

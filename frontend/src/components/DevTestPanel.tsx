@@ -54,7 +54,7 @@ function buildRawPayload(
     resolved_by: null,
     resolved_by_name: null,
     company_id: 1,
-    yolo_score: 0.94,
+    action_score: 0.94,
     vlm_summary: preset.description,
     // 測試事件是全新事件，尚無通報單
     report_stage: null,
@@ -104,7 +104,7 @@ export function DevTestPanel() {
           clip_path: 'http://localhost:8000/images/test.mp4',
           detected_at: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 19),
           snapshot_path: 'http://localhost:8000/images/test.jpg',
-          yolo_score: 0.94,
+          action_score: 0.94,
           vlm_summary: preset.description,
           hazard_object: kind === 'hazard' ? 'knife' : null,
         }),

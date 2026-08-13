@@ -63,7 +63,7 @@ def serialize_event(
         "report_stage": latest_report.report_type if latest_report else None,
         "last_report_at": latest_report.created_at.isoformat() if latest_report else None,
         "company_id": event.company_id,
-        "yolo_score": event.yolo_score,
+        "action_score": event.action_score,
         "vlm_summary": event.vlm_summary,
         "hazard_object": event.hazard_object,
         "detected_objects": event.detected_objects,

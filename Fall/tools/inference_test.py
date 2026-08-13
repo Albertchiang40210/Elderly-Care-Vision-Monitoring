@@ -179,6 +179,7 @@ def _async_process_video(frames, video_path, snapshot_path, cam_id, num_id, prod
             "-s", f"{frame_w}x{frame_h}", "-pix_fmt", "bgr24", "-r", str(export_fps),
             "-i", "-",
             "-c:v", "libx264", "-preset", "ultrafast",
+            "-crf", "28",
             "-profile:v", "baseline", "-level", "3.0",
             "-pix_fmt", "yuv420p", "-movflags", "+faststart",
             temp_final_path
@@ -550,7 +551,15 @@ def camera_worker(camera_id, video_source):
 
                     snapshot_name = f"snapshot_{camera_id}_ID{track_id}_{current_time_str}.jpg"
                     final_snapshot_path = os.path.join(vlm_save_dir, snapshot_name)
-                    cv2.imwrite(final_snapshot_path, annotated_frame)
+                    
+                    # 效能優化：縮放圖片大小至寬度 640 並以 60% 品質壓縮，加速傳輸與彈窗載入
+                    h, w = annotated_frame.shape[:2]
+                    if w > 640:
+                        new_h = int(h * 640 / w)
+                        resized_frame = cv2.resize(annotated_frame, (640, new_h))
+                    else:
+                        resized_frame = annotated_frame
+                    cv2.imwrite(final_snapshot_path, resized_frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
                     
                     local_snap_url = f"/images/{os.path.basename(final_snapshot_path)}"
                     local_vid_url = f"/images/{os.path.basename(final_video_path)}"
@@ -565,11 +574,11 @@ def camera_worker(camera_id, video_source):
                         "detected_at": datetime.now().isoformat(),
                         "snapshot_path": local_snap_url,
                         "image_filename": final_snapshot_path,
-                        "yolo_score": round(float(action_conf), 2),
+                        "action_score": round(float(action_conf), 2),
                         "vlm_summary": f"【緊急通報】邊緣 AI 即時偵測到長者 (ID:{track_id}) 跌倒！請護理人員手動處置。"
                     }
 
-                    if action_conf >= 0.6:
+                    if action_conf >= 0.8:
                         try:
                             headers = {"X-API-Key": VALID_API_KEY, "Content-Type": "application/json"}
                             res = _requests.post("http://localhost:8010/events", json=instant_payload, headers=headers, timeout=2.0)

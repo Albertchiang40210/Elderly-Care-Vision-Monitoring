@@ -53,7 +53,7 @@ class RoutineSanityChecker:
                     "event_type": "Routine_Environment_Sanity_Check",   # ✅ 統一欄位名稱
                     "detected_at": datetime.now().isoformat(),          # ✅ 標準 ISO 時間字串
                     "camera_id": self.camera_id,                        # ✅ 統一相機 ID
-                    "yolo_score": 1.0,                                  # ✅ 巡檢給予滿分置信度
+                    "action_score": 1.0,                                  # ✅ 巡檢給予滿分置信度
                     
                     # 🚨 重點：將兩個路徑欄位通通綁定為隔離資料夾下的「絕對路徑」
                     # 配合智慧化改造後的 vlm_worker.py，大腦就能直接定點抓圖
