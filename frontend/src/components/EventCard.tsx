@@ -51,7 +51,7 @@ export function EventCard({ event, now, highlighted, onAcknowledge }: EventCardP
         )}
       </div>
       <p className="mt-1 flex items-center gap-1 text-sm text-[var(--text-secondary)]">
-        <span>信心：{event.confidence.toFixed(2)}　狀態：</span>
+        <span>動作信心(ACT)：{event.confidence.toFixed(2)}　狀態：</span>
         <StatusTag status={event.status} verdict={event.verdict} ackDeadline={event.ack_deadline} now={now} />
         {event.assignee && <span className="text-sm text-[var(--text-primary)]">　已接手 {event.assignee}</span>}
         <span>　距今已過：{formatElapsedMinutes(event.occurred_at, now)}</span>

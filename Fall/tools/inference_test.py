@@ -169,33 +169,29 @@ def _async_process_video(frames, video_path, snapshot_path, cam_id, num_id, prod
     try:
         if not frames: return
         frame_w, frame_h = 640, 360
-        temp_raw_path = video_path.replace(".mp4", "_raw.mp4")
-        # 先用 OpenCV 快速寫入 mp4v
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        
-        out = cv2.VideoWriter(temp_raw_path, fourcc, float(export_fps), (frame_w, frame_h))
-        for f in frames:
-            out.write(cv2.resize(f, (frame_w, frame_h)))
-        out.release()
-        
-        # 再呼叫 FFmpeg 進行網頁標準化轉碼 (保證 Safari/iOS 絕對能播)
         import subprocess
         import os
+        
+        # 直接將影像 frames 透過 Pipe 寫入 FFmpeg 進行 H.264 轉碼 (不寫暫存檔，並使用 ultrafast)
         temp_final_path = video_path.replace(".mp4", "_final_temp.mp4")
         ffmpeg_cmd = [
-            "ffmpeg", "-y", "-i", temp_raw_path,
-            "-c:v", "libx264", "-preset", "fast",
+            "ffmpeg", "-y", "-f", "rawvideo", "-vcodec", "rawvideo",
+            "-s", f"{frame_w}x{frame_h}", "-pix_fmt", "bgr24", "-r", str(export_fps),
+            "-i", "-",
+            "-c:v", "libx264", "-preset", "ultrafast",
             "-profile:v", "baseline", "-level", "3.0",
             "-pix_fmt", "yuv420p", "-movflags", "+faststart",
             temp_final_path
         ]
-        subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for f in frames:
+            proc.stdin.write(cv2.resize(f, (frame_w, frame_h)).tobytes())
+        proc.stdin.close()
+        proc.wait()
         
         if os.path.exists(temp_final_path):
             os.rename(temp_final_path, video_path)
-        
-        if os.path.exists(temp_raw_path):
-            os.remove(temp_raw_path)
             
         print(f"✅ [{cam_id}] 20 秒片段影片成功歸檔 (Web 完美相容)！")
     except Exception as async_err:
@@ -492,6 +488,7 @@ def camera_worker(camera_id, video_source):
         for p_data in persons_out_list:
             track_id = p_data["id"]
             active_conf = p_data["conf"]
+            action_conf = p_data.get("action_conf", 0.0)
             should_trigger_fall = p_data["is_fall"]
             smooth_box = p_data.get("smooth_box")
             smooth_kpts = p_data.get("smooth_kpts")
@@ -568,11 +565,11 @@ def camera_worker(camera_id, video_source):
                         "detected_at": datetime.now().isoformat(),
                         "snapshot_path": local_snap_url,
                         "image_filename": final_snapshot_path,
-                        "yolo_score": round(float(active_conf), 2),
+                        "yolo_score": round(float(action_conf), 2),
                         "vlm_summary": f"【緊急通報】邊緣 AI 即時偵測到長者 (ID:{track_id}) 跌倒！請護理人員手動處置。"
                     }
 
-                    if active_conf >= 0.4:
+                    if action_conf >= 0.6:
                         try:
                             headers = {"X-API-Key": VALID_API_KEY, "Content-Type": "application/json"}
                             res = _requests.post("http://localhost:8010/events", json=instant_payload, headers=headers, timeout=2.0)
@@ -580,14 +577,6 @@ def camera_worker(camera_id, video_source):
                                 print(f"⚡ [{camera_id}] (ID:{track_id}) 【秒級即時告警】跌倒通知已 0 延遲轟入後端！")
                         except Exception:
                             pass
-                        
-                        # 讓高信心警報也進入 Kafka 進行 VLM 分析，以取得詳細報告
-                        if producer is not None:
-                            try:
-                                producer.send('nursing-home-alerts', value=instant_payload)
-                                producer.flush()
-                            except Exception:
-                                pass
                     else:
                         if producer is not None:
                             instant_payload["vlm_summary"] = None

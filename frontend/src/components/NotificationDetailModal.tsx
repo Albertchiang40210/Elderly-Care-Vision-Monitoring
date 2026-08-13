@@ -25,7 +25,7 @@ export function NotificationDetailModal({ event, onClose }: NotificationDetailMo
 
         <DetailRow label="發生時間" value={`${formatDate(event.occurred_at)} ${formatTime(event.occurred_at)}`} />
         <DetailRow label="最終狀態" value={STATUS_LABEL[event.status]} />
-        <DetailRow label="信心分數" value={event.confidence.toFixed(2)} />
+        <DetailRow label="動作信心分數(ACT)" value={event.confidence.toFixed(2)} />
         <DetailRow label="處理耗時" value={<span className="text-[var(--text-muted)]">－（暫未提供）</span>} />
 
         <button
