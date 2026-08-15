@@ -5,7 +5,7 @@
  * - canvas: 從 SSE 接收 YOLO 結果，畫 bbox + 17 點骨架
  * - 無二次推理，推理引擎每 4 幀順手推一次結果
  */
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, memo } from 'react';
 
 import { BASE_URL } from '../api/client';
 
@@ -45,7 +45,7 @@ interface Props {
   mode?: 'pose' | 'detr' | 'both';
 }
 
-export default function CameraStream({ cameraLabel = 'AI 即時監控', streamId = 'cam_in', mode = 'pose' }: Props) {
+const CameraStream = memo(function CameraStream({ cameraLabel = 'AI 即時監控', streamId = 'cam_in', mode = 'pose' }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -439,4 +439,6 @@ export default function CameraStream({ cameraLabel = 'AI 即時監控', streamId
       <canvas ref={canvasRef} className="absolute inset-0 z-10 h-full w-full pointer-events-none" />
     </div>
   );
-}
+});
+
+export default CameraStream;

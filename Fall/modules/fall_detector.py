@@ -105,15 +105,24 @@ class FallDetectorLogic:
                     num_layers=settings.NUM_LAYERS
                 )
                 self.action_model.load_state_dict(ckpt)
+                
+                if torch.cuda.is_available():
+                    self.device = torch.device('cuda')
+                elif torch.backends.mps.is_available():
+                    self.device = torch.device('mps')
+                else:
+                    self.device = torch.device('cpu')
+                    
+                self.action_model = self.action_model.to(self.device)
                 self.action_model.eval()
-                print("✅ [FallDetectorLogic] 成功掛載 Action Transformer 進行動作分析！")
+                print(f"✅ [FallDetectorLogic] 成功掛載 Action Transformer (裝置: {self.device})！")
             else:
                 print("⚠️ [FallDetectorLogic] 找不到 Action Transformer 模型，不回傳進階動作標籤。")
         except Exception as e:
             print(f"⚠️ [FallDetectorLogic] Action Transformer 載入失敗: {e}")
         
     def process_inference_results(self, results_pose, pose_was_updated=True):
-        """處理 YOLO 推理結果，進行 EMA 平滑與跌倒判定"""
+        """處理 YOLO 推理結果，進行 EMA 平滑與跌倒判定 (加入 Batch 推論優化)"""
         active_track_ids = set()
         persons_out_list = []
         any_fall_triggered = False
@@ -132,6 +141,11 @@ class FallDetectorLogic:
         else:
             track_ids = [i for i in range(len(conf_data))]
             
+        # === 階段 1：計算物理特徵與準備 Batch 推論資料 ===
+        batch_inputs = []
+        batch_track_ids = []
+        intermediate_states = {}
+        
         for i, track_id in enumerate(track_ids):
             active_track_ids.add(track_id)
             conf_val = conf_data[i]
@@ -139,7 +153,6 @@ class FallDetectorLogic:
             
             raw_kpts = None
             if hasattr(results_pose[0].keypoints, 'data') and results_pose[0].keypoints.data is not None:
-                # data contains [x, y, conf]
                 raw_kpts = results_pose[0].keypoints.data.cpu().numpy()[i]
             elif hasattr(results_pose[0].keypoints, 'xy') and results_pose[0].keypoints.xy is not None:
                 raw_kpts = results_pose[0].keypoints.xy.cpu().numpy()[i]
@@ -159,7 +172,6 @@ class FallDetectorLogic:
             
             p_state = self.person_states[track_id]
             if raw_kpts is not None:
-                # Keep all columns (x, y, and conf if available)
                 raw_kpts = np.asarray(raw_kpts, dtype=np.float32)
                 
             smooth_box, smooth_kpts, active_conf = p_state["tracker"].update(raw_box, raw_kpts, conf_val)
@@ -184,26 +196,19 @@ class FallDetectorLogic:
                 except Exception:
                     pass
             
-            torso_is_horizontal = (body_angle is not None and body_angle <= 45.0)
-            body_is_wide = (box_aspect_ratio is not None and box_aspect_ratio >= 1.2)
-            
-            # 取得骨盆到腿部最低點(腳踝或膝蓋)的垂直距離比例
             hip_leg_y_dist = None
             if smooth_kpts is not None and smooth_box is not None:
                 try:
-                    # 檢查 hip 信心度
                     l_hip, r_hip = smooth_kpts[11], smooth_kpts[12]
                     hip_ys = []
                     if len(l_hip) > 2 and l_hip[2] > 0.3: hip_ys.append(l_hip[1])
                     if len(r_hip) > 2 and r_hip[2] > 0.3: hip_ys.append(r_hip[1])
                     
-                    # 檢查 ankle 信心度
                     l_ankle, r_ankle = smooth_kpts[15], smooth_kpts[16]
                     leg_ys = []
                     if len(l_ankle) > 2 and l_ankle[2] > 0.3: leg_ys.append(l_ankle[1])
                     if len(r_ankle) > 2 and r_ankle[2] > 0.3: leg_ys.append(r_ankle[1])
                     
-                    # 如果 ankle 看不到，退而求其次看 knee
                     if not leg_ys:
                         l_knee, r_knee = smooth_kpts[13], smooth_kpts[14]
                         if len(l_knee) > 2 and l_knee[2] > 0.3: leg_ys.append(l_knee[1])
@@ -218,13 +223,14 @@ class FallDetectorLogic:
                 except Exception:
                     pass
 
-            # =========================================================
-            # 🧠 AI 動作分類 (Action Transformer)
-            # =========================================================
-            pred_label_transformer = None
-            pred_conf_val = 0.0
-            
-            # 只有當追蹤穩定 (YOLO 信心度 > 0.5) 且收集了足夠多的真實影格 (>= 10) 才啟動 Transformer (加速反應)
+            # Transformer AI 輔助：收集骨架供未來使用
+            if smooth_kpts is not None:
+                norm_kpts = np.copy(smooth_kpts[:, :2])
+                norm_kpts[:, 0] /= self.img_w
+                norm_kpts[:, 1] /= self.img_h
+                p_state["kpts_sequence"].append(norm_kpts)
+                
+            # 決定是否加入 Batch 推論
             if self.action_model is not None and active_conf > 0.5 and len(p_state["kpts_sequence"]) >= 10:
                 seq = list(p_state["kpts_sequence"])
                 if len(seq) > 30:
@@ -232,62 +238,83 @@ class FallDetectorLogic:
                 elif len(seq) < 30:
                     seq = [seq[0]] * (30 - len(seq)) + seq
                 
-                try:
-                    seq_np = np.array(seq, dtype=np.float32).reshape(1, 30, 34)
-                    seq_tensor = torch.from_numpy(seq_np).cpu()
+                seq_np = np.array(seq, dtype=np.float32)
+                batch_inputs.append(seq_np)
+                batch_track_ids.append(track_id)
+                
+            intermediate_states[track_id] = {
+                "smooth_box": smooth_box,
+                "smooth_kpts": smooth_kpts,
+                "active_conf": active_conf,
+                "body_angle": body_angle,
+                "box_aspect_ratio": box_aspect_ratio,
+                "hip_leg_y_dist": hip_leg_y_dist,
+                "pred_label_transformer": None,
+                "pred_conf_val": 0.0
+            }
+
+        # === 階段 2：Batch AI 推論 ===
+        if batch_inputs and hasattr(self, "device"):
+            batch_tensor = torch.from_numpy(np.stack(batch_inputs)).to(self.device)
+            try:
+                with torch.no_grad():
+                    logits = self.action_model(batch_tensor)
+                    probs = torch.softmax(logits, dim=-1)
+                    pred_idxs = torch.argmax(probs, dim=-1).cpu().numpy()
+                    pred_confs = probs[torch.arange(len(probs)), pred_idxs].cpu().numpy()
                     
-                    with torch.no_grad():
-                        logits = self.action_model(seq_tensor)
-                        probs = torch.softmax(logits, dim=-1)
-                        pred_idx = torch.argmax(probs, dim=-1).item()
-                        pred_conf_val = probs[0, pred_idx].item()
-                        pred_label_transformer = self.id_to_label.get(pred_idx)
-                except Exception as e:
-                    pass
+                    for idx, tid in enumerate(batch_track_ids):
+                        pred_idx = pred_idxs[idx]
+                        intermediate_states[tid]["pred_label_transformer"] = self.id_to_label.get(pred_idx)
+                        intermediate_states[tid]["pred_conf_val"] = float(pred_confs[idx])
+            except Exception as e:
+                pass
+                
+        # === 階段 3：整合物理規則與判定 ===
+        for track_id in track_ids:
+            istate = intermediate_states[track_id]
+            p_state = self.person_states[track_id]
             
-            # 防呆機制 1：如果 Transformer 預測 Fall，但物理骨架明確顯示人在站立或自然下垂，則拒絕該預測
+            smooth_box = istate["smooth_box"]
+            smooth_kpts = istate["smooth_kpts"]
+            active_conf = istate["active_conf"]
+            body_angle = istate["body_angle"]
+            box_aspect_ratio = istate["box_aspect_ratio"]
+            hip_leg_y_dist = istate["hip_leg_y_dist"]
+            pred_label_transformer = istate["pred_label_transformer"]
+            pred_conf_val = istate["pred_conf_val"]
+            
+            torso_is_horizontal = (body_angle is not None and body_angle <= 45.0)
+            body_is_wide = (box_aspect_ratio is not None and box_aspect_ratio >= 1.2)
+            
             if pred_label_transformer == "fall" and hip_leg_y_dist is not None and hip_leg_y_dist > 0.25:
                 pred_label_transformer = "normal"
                 
-            # 防呆機制 2：強勢站立保護。如果上半身是直挺的 (body_angle > 55度)，代表不是躺平或跌倒
             if body_angle is not None and body_angle > 55.0:
                 if pred_label_transformer == "fall":
-                    pred_label_transformer = "normal"  # 校正 AI 誤判，站直不可能跌倒
+                    pred_label_transformer = "normal"
                 
-            # 如果垂直落差超過 20% 的框高 (腿部自然下垂)，強制否定跌倒
             if hip_leg_y_dist is not None and hip_leg_y_dist > 0.20:
                 body_is_wide = False
                 torso_is_horizontal = False
                 
-            # 蜷縮狀態: 骨盆與腿部最低點幾乎在同一水平面
             is_crumpled = False
             if hip_leg_y_dist is not None:
-                # 將門檻從 0.15 降至 0.08，避免把深坐姿當成蜷縮
                 is_crumpled = (-0.1 <= hip_leg_y_dist <= 0.08)
                 
-            # 如果判定為強勢坐下，則無條件取消物理躺臥判斷
             is_confident_sit = (pred_label_transformer == "sitdown" and pred_conf_val > 0.5) or (body_angle is not None and body_angle > 55.0)
             
             is_physically_lying = (torso_is_horizontal or body_is_wide or is_crumpled) and not is_confident_sit
-            
-            # 【動態融合 AI 與物理】: 
-            # 1. 物理特徵判定為躺臥。
-            # 2. 或者 Action Transformer (AI 模型) 高度自信認為是 Fall (解決 Z 軸跌倒問題)。
-            # 將自信心門檻從 0.8 提高到 0.85，並且排除坐姿
             is_ai_fall = (pred_label_transformer == "fall" and pred_conf_val > 0.85) and not is_confident_sit
             
             if pose_was_updated:
                 if is_physically_lying or is_ai_fall:
                     p_state["consecutive_fall_frames"] += 1
                 else:
-                    # 不瞬間歸零，避免骨架稍微跳動就斷掉
                     p_state["consecutive_fall_frames"] = max(0, p_state["consecutive_fall_frames"] - 2)
             
-            # 【動態跌倒閾值】
-            # 將連續觸發門檻從 4 稍微拉回 6，給系統多 0.1 秒確認，減少閃爍誤報；物理判定設為 12
             fall_threshold = 6 if is_ai_fall else 12
             should_trigger_fall = p_state["consecutive_fall_frames"] >= fall_threshold
-            
             recovered = False
             
             if should_trigger_fall:
@@ -297,13 +324,12 @@ class FallDetectorLogic:
             else:
                 if p_state["ever_detected_fall"] and not is_physically_lying:
                     p_state["standing_recovery_count"] += 1
-                    if p_state["standing_recovery_count"] >= 150:  # 5 秒鐘必須一直被判定為非躺下才算起身
+                    if p_state["standing_recovery_count"] >= 150:
                         p_state["ever_detected_fall"] = False
                         p_state["vlm_triggered"] = False
                         p_state["standing_recovery_count"] = 0
                         recovered = True
                         
-            # Prepare output dict
             if smooth_box is not None:
                 norm_bbox = [
                     round(float(smooth_box[0]) / self.img_w, 4),
@@ -325,7 +351,6 @@ class FallDetectorLogic:
                     _kp_2d.append([0.0, 0.0])
                     _kp_dict_list.append({"x": 0.0, "y": 0.0, "score": 0.0, "id": len(_kp_dict_list)})
 
-                # 計算衍生的 Action Confidence
                 base_action_conf = pred_conf_val if pred_label_transformer else 0.0
                 if body_angle is not None:
                     angle_score = max(0, (80.0 - body_angle) / 80.0) 
@@ -334,19 +359,15 @@ class FallDetectorLogic:
                     ratio_score = min(1.0, box_aspect_ratio / 1.5) if box_aspect_ratio > 0.5 else 0
                     base_action_conf = max(base_action_conf, ratio_score)
                 
-                # VLM Confidence 模擬
                 vlm_conf = 0.95 if should_trigger_fall else 0.05
                 if not should_trigger_fall and base_action_conf > 0.6:
-                    vlm_conf = 0.5 # 模糊地帶交由 VLM 判斷
+                    vlm_conf = 0.5
 
-                # === 動作標籤判定 (整合物理規則與 Transformer) ===
-                
                 if should_trigger_fall or (p_state["ever_detected_fall"] and p_state["standing_recovery_count"] < 150):
                     action_label = "Fall"
                 else:
                     action_label = "Normal"
                     if pred_label_transformer is not None and pred_conf_val > 0.5:
-                        # 優先採納 User 訓練的 6 分類模型結果，顯示在 UI 上
                         transformer_mapping = {
                             "fall": "Fall",
                             "sitdown": "Sitting",
@@ -357,7 +378,6 @@ class FallDetectorLogic:
                         }
                         action_label = transformer_mapping.get(pred_label_transformer, "Normal")
                     
-                    # 物理規則覆寫：如果 AI 認為是 Normal 或 Walking，但我們透過物理特徵(位移)偵測到人在移動，強制改為 Walking
                     if body_angle is not None and box_aspect_ratio is not None:
                         if body_angle >= 68.0:
                             cx = (float(smooth_box[0]) + float(smooth_box[2])) / 2
@@ -384,12 +404,10 @@ class FallDetectorLogic:
                             if is_moving and action_label in ["Normal", "Sitting"]:
                                 action_label = "Walking"
                                 
-                        # 防呆機制：如果 AI 預測是 Sitting，但物理特徵非常像站立(細長且相對直立)，就否決 AI
-                        if action_label == "Sitting" and box_aspect_ratio is not None and body_angle is not None:
-                            if box_aspect_ratio < 0.55 and body_angle > 55.0:
-                                action_label = "Bending" if body_angle < 70.0 else "Normal"
+                        if action_label == "Sitting" and box_aspect_ratio < 0.55 and body_angle > 55.0:
+                            action_label = "Bending" if body_angle < 70.0 else "Normal"
                                 
-                        if action_label == "Normal": # 如果 AI 沒抓到，物理特徵來補救
+                        if action_label == "Normal":
                             if body_angle < 60.0 and body_angle >= 35.0:
                                 action_label = "Bending"
                             elif box_aspect_ratio > 0.6 and body_angle < 85.0:
@@ -397,18 +415,8 @@ class FallDetectorLogic:
                             elif body_angle < 35.0:
                                 action_label = "Fall" if box_aspect_ratio > 1.0 else "Bending"
                 
-                # Transformer AI 輔助：收集骨架供未來使用
-                if smooth_kpts is not None:
-                    norm_kpts = np.copy(smooth_kpts[:, :2])
-                    norm_kpts[:, 0] /= self.img_w
-                    norm_kpts[:, 1] /= self.img_h
-                    p_state["kpts_sequence"].append(norm_kpts)
-                    
-                # === 時間平滑投票機制 (Action Vote Buffer) ===
-                # 收集最近 10 幀的判定結果，取多數決，過濾掉一閃而過的雜訊誤判
                 p_state["action_vote_buffer"].append(action_label)
                 if len(p_state["action_vote_buffer"]) >= 3:
-                    # 如果「跌倒」被觸發，保持最高優先級，絕對不能被投票機制蓋掉
                     if should_trigger_fall or action_label == "Fall":
                         final_action_label = "Fall"
                     else:
@@ -419,7 +427,6 @@ class FallDetectorLogic:
                     final_action_label = action_label
                     
                 p_state["last_stable_action"] = final_action_label
-
 
                 persons_out_list.append({
                     "id": track_id,
@@ -437,7 +444,6 @@ class FallDetectorLogic:
                     "smooth_box": smooth_box.tolist() if hasattr(smooth_box, "tolist") else smooth_box,
                     "smooth_kpts": smooth_kpts.tolist() if hasattr(smooth_kpts, "tolist") else smooth_kpts
                 })
-                # Mark as triggered so we don't spam triggers
                 p_state["_last_vlm_triggered"] = should_trigger_fall
 
         self._cleanup_missing_ids(active_track_ids)

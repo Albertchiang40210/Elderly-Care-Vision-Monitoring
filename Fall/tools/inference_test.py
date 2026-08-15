@@ -113,7 +113,7 @@ custom_pose = get_latest_model(custom_pose_dir)
 pose_model_name = custom_pose if custom_pose else "yolo11m-pose.pt"
 print(f"🦴 [Model Loader] YOLO Pose 載入路徑: {pose_model_name}")
 
-coreml_model_name = "yolo11s-pose.mlpackage"
+coreml_model_name = os.path.join(PROJECT_ROOT, "Fall", "tools", "yolo11s-pose.mlpackage")
 # 如果使用客製化模型，則忽略 CoreML (因為目前沒有導出機制)
 if not custom_pose and not os.path.exists(coreml_model_name) and os.path.exists(pose_model_name):
     try:
@@ -124,6 +124,10 @@ if not custom_pose and not os.path.exists(coreml_model_name) and os.path.exists(
         print("🎉 CoreML 導出成功！")
     except Exception as e:
         print(f"⚠️ CoreML 導出失敗: {e}，將使用原生 CPU 模式。")
+        
+if not custom_pose and os.path.exists(coreml_model_name) and torch.backends.mps.is_available():
+    print(f"🦴 [Model Loader] 偵測到 Apple Silicon，自動切換至 CoreML 模型加速: {coreml_model_name}")
+    pose_model_name = coreml_model_name
         
 # YOLO model will be instantiated inside the worker to avoid thread-safety issues
 # during concurrent model.fuse() calls.

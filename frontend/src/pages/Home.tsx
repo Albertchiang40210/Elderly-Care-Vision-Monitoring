@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, memo } from 'react';
 import CameraStream from '../components/CameraStream';
 import { Link } from 'react-router-dom';
 import { getCameras } from '../api/cameras';
@@ -59,7 +59,7 @@ const ALERT_LOG_CARD_BORDER_CLASS: Record<AlertLogEntry['action'], string> = {
 
 // 單筆「未回應事件」卡：潛在危險偵測／待處理，兩態徽章配色。潛在危險附物品類型。時間顯示到分。
 // 「待處理」可點擊重開全螢幕警示彈窗（傳 onClick），潛在危險沒有對應彈窗，不給 onClick。
-function AlertLogCard({ entry, onClick }: { entry: AlertLogEntry; onClick?: () => void }) {
+const AlertLogCard = memo(function AlertLogCard({ entry, onClick }: { entry: AlertLogEntry; onClick?: () => void }) {
   const content = (
     <>
       <div className="flex min-w-0 items-center gap-2">
@@ -96,7 +96,7 @@ function AlertLogCard({ entry, onClick }: { entry: AlertLogEntry; onClick?: () =
       {content}
     </div>
   );
-}
+});
 
 // pending 那幾行 log 不額外存資料，直接從後端持久化的 events 現算：只要事件 status 還是
 // pending，重新整理後照樣算得出來，不會像原本存記憶體的 alertLog 一樣一刷新就不見。

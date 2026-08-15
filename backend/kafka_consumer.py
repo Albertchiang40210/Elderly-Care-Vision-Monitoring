@@ -1,11 +1,12 @@
 # kafka_consumer.py
 # Kafka consumer：消費 processed-reports，每則轉打 POST /events。
-# 純邏輯（classify_response / handle_raw_message）與碰外部（post_event / build_consumer / run）分層。
+# 優化版：使用批次拉取 (poll) + 多執行緒 (ThreadPoolExecutor) + HTTP Keep-Alive 加速發送。
 
 import json
 import logging
 import time
 import traceback
+import concurrent.futures
 
 import httpx
 
@@ -40,31 +41,36 @@ def classify_response(status_code: int) -> str:
     return "retry"
 
 
-def handle_raw_message(raw, post_fn) -> str:
-    # 1. 解析：解析不了就是壞資料（毒訊息）
-    try:
-        data = json.loads(raw)
-    except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
-        return "poison"
-    # 2. 送出：送出階段任何例外＝傳輸失敗（一時的），回 retry
-    try:
-        response = post_fn(data)
-    except Exception as err:
-        traceback.print_exc()
-        return "retry"
-
-    # 3. 依回應碼判定
-    return classify_response(response.status_code)
-
-
-def post_event(data: dict):
-    # 真正的送出動作：把一筆事件 POST 給自家 /events，帶機器驗證 key
-    return httpx.post(
-        EVENTS_URL,
-        json=data,
-        headers={"X-API-Key": EVENT_API_KEY},
-        timeout=10,
-    )
+def process_message_with_retry(msg_value: bytes, client: httpx.Client) -> str:
+    """處理單筆 Kafka 訊息，包含解析、發送與失敗重試邏輯（執行於 ThreadPool 內）"""
+    while True:
+        try:
+            data = json.loads(msg_value)
+        except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
+            logger.error("JSON 解析失敗 (毒訊息)，跳過：%r", msg_value)
+            return "poison"
+            
+        try:
+            response = client.post(
+                EVENTS_URL,
+                json=data,
+                headers={"X-API-Key": EVENT_API_KEY},
+                timeout=10,
+            )
+            decision = classify_response(response.status_code)
+        except Exception:
+            traceback.print_exc()
+            decision = "retry"
+            
+        if decision == "retry":
+            logger.warning("送出失敗（一時），%s 秒後重試", RETRY_SLEEP_SECONDS)
+            time.sleep(RETRY_SLEEP_SECONDS)
+            continue
+        elif decision == "poison":
+            logger.error("API 回傳 400/422 (毒訊息)，跳過：%r", msg_value)
+            return "poison"
+        else:
+            return "ok"
 
 
 def build_consumer():
@@ -82,23 +88,39 @@ def build_consumer():
 def run():
     consumer = build_consumer()
     logger.info("consumer 啟動，監聽 topic=%s bootstrap=%s", KAFKA_TOPIC, KAFKA_BOOTSTRAP_SERVERS)
-    try:
-        for message in consumer:
-            # 對「同一則」重試直到 ok/poison，期間不 commit（server 恢復前不掉件）
+    
+    # 建立持久化的 httpx.Client (Keep-Alive) 以及 ThreadPoolExecutor 進行多執行緒並發
+    with httpx.Client() as client, concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        try:
             while True:
-                decision = handle_raw_message(message.value, post_event)
-                if decision == "retry":
-                    logger.warning("送出失敗（一時），%s 秒後重試", RETRY_SLEEP_SECONDS)
-                    time.sleep(RETRY_SLEEP_SECONDS)
+                # 批次拉取訊息 (最多等待 1 秒)
+                msg_pack = consumer.poll(timeout_ms=1000, max_records=100)
+                if not msg_pack:
                     continue
-                if decision == "poison":
-                    logger.error("毒訊息，跳過：%r", message.value)
-                consumer.commit()  # ok 或 poison 都前進
-                break
-    except KeyboardInterrupt:
-        logger.info("收到中斷，關閉 consumer")
-    finally:
-        consumer.close()
+                
+                # 展開各 Partition 的訊息
+                all_messages = []
+                for tp, messages in msg_pack.items():
+                    all_messages.extend(messages)
+                    
+                if not all_messages:
+                    continue
+                    
+                # 將所有訊息丟入 ThreadPool 平行處理
+                futures = []
+                for msg in all_messages:
+                    futures.append(executor.submit(process_message_with_retry, msg.value, client))
+                    
+                # 阻塞直到這批訊息全數處理完畢 (ok 或 poison)
+                concurrent.futures.wait(futures)
+                
+                # 確認全部發送完畢後才 Commit，確保不掉件
+                consumer.commit()
+                
+        except KeyboardInterrupt:
+            logger.info("收到中斷，關閉 consumer")
+        finally:
+            consumer.close()
 
 
 if __name__ == "__main__":

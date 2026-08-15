@@ -120,7 +120,7 @@ class DetectEvent(Base):  # 跌倒事件主表
     # 程式端讀寫都還是普通字串（例如 "pending"），Enum 只是讓資料庫多一層守門
     status: Mapped[str] = mapped_column(
         Enum("pending", "in_progress", "resolved", name="event_status", create_constraint=True),
-        nullable=False, default="pending"
+        nullable=False, default="pending", index=True
     )
     verdict: Mapped[Optional[str]] = mapped_column(
         Enum("true_alarm", "false_alarm", name="event_verdict", create_constraint=True), nullable=True
@@ -128,7 +128,7 @@ class DetectEvent(Base):  # 跌倒事件主表
 
     clip_path: Mapped[str] = mapped_column(String(255), nullable=False)  # 事件影像片段
     snapshot_path: Mapped[Optional[str]] = mapped_column(String(255))    # 截圖
-    detected_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    detected_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     # 前端第一次回報收到（ack）的時間；NULL = 尚未收到，重推機制據此判斷要不要補推
     notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     # 誰點的誰負責：兩欄都存 user_account 的員編（JWT 的 sub），不是 staff 表的數字 id
