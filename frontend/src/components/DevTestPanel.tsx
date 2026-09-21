@@ -13,6 +13,7 @@ import { getCameras } from '../api/cameras';
 import { parseRawEvent, type RawEventPayload } from '../api/events';
 import { useEvents } from '../hooks/eventsContext';
 import { HAZARD_OBJECTS } from '../types';
+import { BASE_URL } from '../api/client';
 
 // 兩種測試事件的 payload 內容（跌倒／物件偵測危險物品）。
 const TEST_EVENT_PRESETS = {
@@ -45,8 +46,8 @@ function buildRawPayload(
     event_type: preset.event_type,
     status: 'pending',
     verdict: null,
-    clip_path: 'http://localhost:8000/images/test.mp4',
-    snapshot_path: 'http://localhost:8000/images/test.jpg',
+    clip_path: '/images/test.mp4',
+    snapshot_path: '/images/test.jpg',
     detected_at: new Date().toISOString(),
     notified_at: null,
     verdict_by: null,
@@ -88,7 +89,7 @@ export function DevTestPanel() {
     if (!camera) return;
 
     const preset = TEST_EVENT_PRESETS[kind];
-    const backendApiUrl = 'http://localhost:8000/events';
+    const backendApiUrl = `${BASE_URL}/events`;
     const validApiKey = 'nAK4h8ARAJMjCSoWJ-uErx2KyZKGDF-jcXqmMUpkM_o';
 
     try {
@@ -101,9 +102,9 @@ export function DevTestPanel() {
         body: JSON.stringify({
           device_id: camera.id,
           event_type: preset.event_type,
-          clip_path: 'http://localhost:8000/images/test.mp4',
+          clip_path: '/images/test.mp4',
           detected_at: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 19),
-          snapshot_path: 'http://localhost:8000/images/test.jpg',
+          snapshot_path: '/images/test.jpg',
           action_score: 0.94,
           vlm_summary: preset.description,
           hazard_object: kind === 'hazard' ? 'knife' : null,

@@ -14,7 +14,8 @@ if "sqlite" in DATABASE_URL:
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args=connect_args
+    connect_args=connect_args,
+    pool_pre_ping=True
 )
 
 

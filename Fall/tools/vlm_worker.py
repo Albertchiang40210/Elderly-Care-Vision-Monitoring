@@ -516,7 +516,7 @@ if __name__ == "__main__":
         'nursing-home-alerts',
         bootstrap_servers=['localhost:9092'],
         value_deserializer=lambda v: json.loads(v.decode('utf-8')), 
-        auto_offset_reset='latest',  
+        auto_offset_reset='earliest',  
         group_id='vlm-brain-cluster'
     )
     

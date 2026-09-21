@@ -35,8 +35,8 @@ pkill -f "ffmpeg.*rtsp://localhost:8554"
 pkill -f mediamtx
 pkill -f go2rtc
 kill -9 $(lsof -t -i:9001) 2>/dev/null  # Webhook
-kill -9 $(lsof -t -i:8000) 2>/dev/null  # FastAPI
-kill -9 $(lsof -t -i:3000) 2>/dev/null  # React Frontend
+kill -9 $(lsof -t -i:8010) 2>/dev/null  # FastAPI
+kill -9 $(lsof -t -i:5173) 2>/dev/null  # React Frontend
 
 echo "======================================================="
 echo "✅ 所有系統進程皆已乾淨清理完畢！"

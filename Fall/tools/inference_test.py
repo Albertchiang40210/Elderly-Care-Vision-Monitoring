@@ -136,20 +136,23 @@ output_frames = {}
 frames_lock = threading.Lock()
 
 # ─── 🎯 動態/即時畫框數據推送 ────────────────────
-_BACKEND_DETECT_URL = "http://localhost:8010/events/live-detection"
+_BACKEND_DETECT_URLS = [
+    "http://localhost:8010/events/live-detection",  # Local dev backend
+]
 
 def _push_detection(payload_dict: dict):
-    try:
-        resp = _requests.post(
-            _BACKEND_DETECT_URL,
-            json=payload_dict,
-            headers={"X-API-Key": VALID_API_KEY, "Content-Type": "application/json"},
-            timeout=0.5
-        )
-        if resp.status_code != 200:
-            print(f"⚠️ [_push_detection Error] HTTP {resp.status_code}: {resp.text}")
-    except Exception as err:
-        print(f"⚠️ [_push_detection Exception] {err}")
+    for url in _BACKEND_DETECT_URLS:
+        try:
+            resp = _requests.post(
+                url,
+                json=payload_dict,
+                headers={"X-API-Key": VALID_API_KEY, "Content-Type": "application/json"},
+                timeout=0.2
+            )
+            if resp.status_code != 200:
+                print(f"⚠️ [_push_detection Error] {url} HTTP {resp.status_code}: {resp.text}")
+        except Exception as err:
+            pass # 忽略未啟動的後端
 
 import queue as _queue
 _detection_queue: _queue.Queue = _queue.Queue(maxsize=10)
@@ -392,10 +395,26 @@ def camera_worker(camera_id, video_source):
                 ).start()
                 
             if is_using_demo_video:
-                break  # 影片結束，不要重播
+                # 示範影片循環播放
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                continue
             else:
-                print(f"❌ [{camera_id}] 影像流已結束")
-                break
+                print(f"❌ [{camera_id}] 影像流已結束，1秒後嘗試重新連線...")
+                time.sleep(1)
+                if cap is not None:
+                    cap.release()
+                if isinstance(video_source, str) and video_source.startswith("rtsp://"):
+                    rtsp_url_ipv4 = video_source.replace("localhost", "127.0.0.1")
+                    gst_pipeline = (
+                        f"rtspsrc location={rtsp_url_ipv4} protocols=tcp latency=0 ! "
+                        f"rtph264depay ! h264parse ! decodebin ! videoconvert ! video/x-raw, format=BGR ! appsink drop=true sync=false"
+                    )
+                    cap = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
+                    if cap is None or not cap.isOpened():
+                        cap = cv2.VideoCapture(video_source.replace("localhost", "127.0.0.1"), cv2.CAP_FFMPEG)
+                else:
+                    cap = cv2.VideoCapture(video_source)
+                continue
 
         img_h, img_w, _ = frame.shape
         if img_w != 1280 or img_h != 720:
@@ -495,6 +514,13 @@ def camera_worker(camera_id, video_source):
             active_conf = p_data["conf"]
             action_conf = p_data.get("action_conf", 0.0)
             should_trigger_fall = p_data["is_fall"]
+            
+            if p_data.get("source") == "yolo-pose":
+                fall_score = p_data.get("fall_score", 0.0)
+                if fall_score > 0.5:
+                    should_trigger_fall = True
+                    any_fall_triggered_this_frame = True
+
             smooth_box = p_data.get("smooth_box")
             smooth_kpts = p_data.get("smooth_kpts")
             
@@ -582,14 +608,17 @@ def camera_worker(camera_id, video_source):
                         "vlm_summary": f"【緊急通報】邊緣 AI 即時偵測到長者 (ID:{track_id}) 跌倒！請護理人員手動處置。"
                     }
 
-                    if action_conf >= 0.8:
-                        try:
-                            headers = {"X-API-Key": VALID_API_KEY, "Content-Type": "application/json"}
-                            res = _requests.post("http://localhost:8010/events", json=instant_payload, headers=headers, timeout=2.0)
-                            if res.status_code in [200, 201]:
-                                print(f"⚡ [{camera_id}] (ID:{track_id}) 【秒級即時告警】跌倒通知已 0 延遲轟入後端！")
-                        except Exception:
-                            pass
+                    if action_conf >= 0.40:
+                        headers = {"X-API-Key": VALID_API_KEY, "Content-Type": "application/json"}
+                        success_printed = False
+                        for url in ["http://localhost:8010/events"]:
+                            try:
+                                res = _requests.post(url, json=instant_payload, headers=headers, timeout=2.0)
+                                if res.status_code in [200, 201] and not success_printed:
+                                    print(f"⚡ [{camera_id}] (ID:{track_id}) 【秒級即時告警】跌倒通知已 0 延遲轟入後端！")
+                                    success_printed = True
+                            except Exception:
+                                pass
                     else:
                         if producer is not None:
                             instant_payload["vlm_summary"] = None
