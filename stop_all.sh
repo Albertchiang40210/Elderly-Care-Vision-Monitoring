@@ -11,9 +11,9 @@ echo "======================================================="
 
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# 1. 關閉所有 Docker 容器 (Cloud)
+# 1. 關閉所有 Docker 容器 (Edge + Cloud)
 echo "🐳 正在關閉 Docker 容器..."
-(cd "$BASE_DIR" && docker-compose down >/dev/null 2>&1)
+(cd "$BASE_DIR" && docker compose --profile edge --profile cloud down 2>/dev/null)
 docker stop deepstream_pipeline >/dev/null 2>&1 || true
 docker rm deepstream_pipeline >/dev/null 2>&1 || true
 

@@ -13,9 +13,9 @@ echo "======================================================="
 echo "☁️ [Cloud 後勤] 正在啟動 MLOps 煉丹爐與標註伺服器..."
 echo "======================================================="
 
-# 1. 啟動基礎設施 Docker (ClearML, Label Studio, Kafka)
-echo "🐳 [1/2] 啟動 Docker 容器 (ClearML, Label Studio, Kafka)..."
-docker-compose up -d
+# 1. 啟動基礎設施 + Cloud MLOps Docker
+echo "🐳 [1/2] 啟動 Docker 容器 (Kafka, PostgreSQL, ClearML, Label Studio)..."
+docker compose --profile cloud up -d
 sleep 5
 
 # 2. 啟動 Python MLOps 腳本
@@ -48,7 +48,7 @@ echo "======================================================="
 # 攔截 Ctrl+C 自動清理
 cleanup() {
     echo -e "\n🛑 偵測到中斷訊號 (Ctrl+C)，正在關閉後勤 MLOps 伺服器..."
-    docker-compose down
+    docker compose --profile cloud down
     pkill -f watchdog.py
     pkill -f webhook_receiver.py
     pkill -f "clearml-agent"

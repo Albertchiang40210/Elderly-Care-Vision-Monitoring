@@ -1,7 +1,67 @@
 
 services:
-  # --- 1. 後端 API 服務 (FastAPI) ---
+
+  # =========================================================================
+  # 🏗️ 基礎設施層 (Infrastructure) — 永遠啟動，Edge 與 Cloud 共用
+  # 啟動: docker compose up -d
+  # =========================================================================
+
+  # --- PostgreSQL 中央資料庫 ---
+  postgres:
+    image: postgres:15
+    container_name: nh-postgres
+    restart: "no"
+    environment:
+      POSTGRES_USER: ${DB_USER:-testuser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-testpassword}
+      POSTGRES_DB: ${DB_NAME:-aidb}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - nh-net
+
+  # --- Zookeeper (Kafka 依賴) ---
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.0
+    container_name: nh-zookeeper
+    restart: "no"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - nh-net
+
+  # --- Kafka 訊息佇列 ---
+  kafka:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: nh-kafka
+    restart: "no"
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_ZOOKEEPER_SESSION_TIMEOUT_MS: 60000
+      KAFKA_ZOOKEEPER_CONNECTION_TIMEOUT_MS: 60000
+    networks:
+      - nh-net
+
+  # =========================================================================
+  # 🛡️ Edge 前線層 — 啟動: docker compose --profile edge up -d
+  # =========================================================================
+
+  # --- FastAPI 後端 API ---
   backend:
+    profiles: ["edge"]
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -17,16 +77,21 @@ services:
       - DB_USER=${DB_USER:-testuser}
       - DB_PASSWORD=${DB_PASSWORD:-testpassword}
       - DB_NAME=${DB_NAME:-aidb}
-
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-ap-northeast-1}
       - EVENT_API_KEY=${EVENT_API_KEY:-nAK4h8ARAJMjCSoWJ-uErx2KyZKGDF-jcXqmMUpkM_o}
     volumes:
       - ./Fall/active_learning_dataset:/app/Fall/active_learning_dataset
       - ./backend/static:/app/static
       - ${AWS_CREDENTIALS_PATH:-~/.aws}:/root/.aws:ro
+    depends_on:
+      - postgres
+      - kafka
+    networks:
+      - nh-net
 
-  # --- 2. 前端服務 (React + Nginx 整合中控台) ---
+  # --- React + Nginx 前端 ---
   frontend:
+    profiles: ["edge"]
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -35,14 +100,17 @@ services:
     depends_on:
       - backend
     ports:
-      - "5173:80"  # 外部造訪通道路徑: http://localhost:5173
+      - "5173:80"
     volumes:
       - ./frontend/dist:/usr/share/nginx/html:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - nh-net
 
-  # --- 3. Netdata 即時系統效能監控儀表板 (不隨 Docker 自動重啟) ---
+  # --- Netdata 系統效能監控 ---
   netdata:
+    profiles: ["edge"]
     image: netdata/netdata:latest
     container_name: nh-netdata
     hostname: aipe03-edge-monitor
@@ -58,8 +126,173 @@ services:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - nh-net
 
+  # =========================================================================
+  # ☁️ Cloud MLOps 層 — 啟動: docker compose --profile cloud up -d
+  # =========================================================================
+
+  # --- Label Studio 標註平台 ---
+  label-studio:
+    profiles: ["cloud"]
+    image: heartexlabs/label-studio:latest
+    container_name: label-studio-compose
+    restart: "no"
+    ports:
+      - "8082:8080"
+    volumes:
+      - lsdata:/label-studio/data
+      - ./Fall/label_studio_data:/label-studio/data/label_studio_data
+    environment:
+      - LOCAL_FILES_SERVING_ENABLED=true
+      - LOCAL_FILES_DOCUMENT_ROOT=/label-studio/data/label_studio_data
+    networks:
+      - nh-net
+
+  # --- Webhook Receiver (標註完成自動觸發重訓) ---
+  webhook-receiver:
+    profiles: ["cloud"]
+    image: python:3.13-slim
+    container_name: webhook-receiver-compose
+    restart: "no"
+    volumes:
+      - ./:/app
+      - ~/.clearml.conf:/root/clearml.conf:ro
+    working_dir: /app
+    command: >
+      sh -c "pip install --no-cache-dir fastapi uvicorn requests clearml boto3 opencv-python-headless numpy &&
+             python Fall/tools/webhook_receiver.py"
+    ports:
+      - "9000:9000"
+    extra_hosts:
+      - "clearml-server-apiserver:host-gateway"
+      - "clearml-server-webserver:host-gateway"
+      - "clearml-server-fileserver:host-gateway"
+    environment:
+      - CLEARML_API_HOST=http://clearml-server-apiserver:8008
+      - CLEARML_WEB_HOST=http://clearml-server-webserver:8080
+      - CLEARML_FILES_HOST=http://clearml-server-fileserver:8081
+      - CLEARML_API_ACCESS_KEY=clearml
+      - CLEARML_API_SECRET_KEY=clearml
+    networks:
+      - nh-net
+
+  # --- ClearML Redis 快取 ---
+  clearml-redis:
+    profiles: ["cloud"]
+    image: redis:6.2-alpine
+    container_name: clearml-redis
+    restart: "no"
+    networks:
+      - nh-net
+
+  # --- ClearML MongoDB 資料庫 ---
+  clearml-mongo:
+    profiles: ["cloud"]
+    image: mongo:5.0.26
+    container_name: clearml-mongo
+    restart: "no"
+    volumes:
+      - clearml-mongo-data:/data/db
+    networks:
+      - nh-net
+
+  # --- ClearML Elasticsearch 搜尋引擎 ---
+  clearml-elastic:
+    profiles: ["cloud"]
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.9
+    container_name: clearml-elastic
+    restart: "no"
+    environment:
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    volumes:
+      - clearml-elastic-data:/usr/share/elasticsearch/data
+    networks:
+      - nh-net
+
+  # --- ClearML API Server ---
+  clearml-apiserver:
+    profiles: ["cloud"]
+    image: clearml/server:latest
+    platform: linux/amd64
+    container_name: clearml-server-apiserver
+    restart: "no"
+    command: [apiserver]
+    environment:
+      - CLEARML_REDIS_SERVICE_HOST=clearml-redis
+      - CLEARML_REDIS_SERVICE_PORT=6379
+      - CLEARML_MONGODB_SERVICE_HOST=clearml-mongo
+      - CLEARML_MONGODB_SERVICE_PORT=27017
+      - CLEARML_ELASTIC_SERVICE_HOST=clearml-elastic
+      - CLEARML_ELASTIC_SERVICE_PORT=9200
+    depends_on:
+      - clearml-redis
+      - clearml-mongo
+      - clearml-elastic
+    ports:
+      - "8008:8008"
+    volumes:
+      - clearml-logs:/var/log/clearml
+      - clearml-data:/mnt/fileserver
+    networks:
+      nh-net:
+        aliases:
+          - apiserver
+
+  # --- ClearML Web Server ---
+  clearml-webserver:
+    profiles: ["cloud"]
+    image: clearml/server:latest
+    platform: linux/amd64
+    container_name: clearml-server-webserver
+    restart: "no"
+    command: [webserver]
+    depends_on:
+      - clearml-apiserver
+    ports:
+      - "8080:80"
+    networks:
+      - nh-net
+
+  # --- ClearML File Server ---
+  clearml-fileserver:
+    profiles: ["cloud"]
+    image: clearml/server:latest
+    platform: linux/amd64
+    container_name: clearml-server-fileserver
+    restart: "no"
+    command: [fileserver]
+    environment:
+      - CLEARML_SERVER_API_SERVER_HOST=clearml-server-apiserver
+      - CLEARML_SERVER_API_SERVER_PORT=8008
+    ports:
+      - "8081:8081"
+    volumes:
+      - clearml-logs:/var/log/clearml
+      - clearml-data:/mnt/fileserver
+    networks:
+      nh-net:
+        aliases:
+          - fileserver
+
+# =========================================================================
+# 📦 Volumes
+# =========================================================================
+volumes:
+  pgdata:
+  lsdata:
+  clearml-mongo-data:
+  clearml-elastic-data:
+  clearml-logs:
+  clearml-data:
+
+# =========================================================================
+# 🌐 Networks — nh-net 兼容舊名稱 tools_default
+# =========================================================================
 networks:
-  default:
+  nh-net:
     name: tools_default
-    external: true
+    driver: bridge
