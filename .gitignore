@@ -74,3 +74,10 @@ backend/*.db
 go2rtc
 go2rtc.zip
 *.db
+
+# 8. 忽略自動產生的 YOLO 訓練資料集 yaml（程式執行時動態寫入，不應進 Git）
+Fall/tools/dynamic_data.yaml
+Fall/tools/pose_dynamic_data.yaml
+
+# 9. 忽略含本機絕對路徑的 data.yaml（請複製 data.yaml.example 並修改路徑）
+Fall/tools/data.yaml

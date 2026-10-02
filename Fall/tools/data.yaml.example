@@ -1,0 +1,11 @@
+# ⚠️ 使用說明：
+# 1. 將此檔案複製為 data.yaml：cp data.yaml.example data.yaml
+# 2. 將 path 改為你的 active_learning_dataset 資料夾的絕對路徑
+# 3. data.yaml 已加入 .gitignore，不會被 commit
+
+names:
+  0: wheelchair
+  1: bed
+path: /YOUR/ABSOLUTE/PATH/TO/AIPE03/Fall/active_learning_dataset
+train: images
+val: images
