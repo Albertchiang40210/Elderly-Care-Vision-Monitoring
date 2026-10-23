@@ -1,5 +1,7 @@
 # ClearML 啟動部屬與設定文件
 
+> 這是通用的部署說明。本專案的 `docker-compose.yml` 已包含 ClearML 服務，使用 `docker compose --profile cloud up -d` 即可，連接埠以 compose 檔為準（Web 8080、API 8008、File 8081）。
+
 本文檔說明如何使用 Docker Compose 部署並設定 ClearML 伺服器 (ClearML Server)。
 
 ## 1. 系統需求

@@ -7,7 +7,7 @@
 ## 系統架構
 
 ```
-RTSP 攝影機 ─► MediaMTX / go2rtc ─► 推論 Worker (Fall/tools/inference_test.py)
+RTSP 攝影機 ─► MediaMTX / go2rtc ─► 推論 Worker (Fall/tools/inference_worker.py)
                                        │  YOLO11-Pose → 骨架序列(30 幀×34 維) → ActionTransformer
                                        │  (支援直接載入模型，或透過 Triton Inference Server 呼叫 ONNX)
                                        ▼
@@ -175,8 +175,13 @@ Fall/model_repository/  Triton 模型設定（config.pbtxt）
 deepstream_configs/ DeepStream 設定檔（未實測）
 gcp_vm_environment/ 另一組 Kafka / Nginx / Prometheus 部署設定（VM 部署用，展示環境未使用）
 RTSP.MediaMTX_20260723/  MediaMTX 設定與排查筆記
+docker/             額外的 Dockerfile（webhook receiver）
+docs/               MLOps 操作文件（ClearML、Label Studio、重訓 SOP、Demo 手冊）
+scripts/            維運與一次性腳本
 docker-compose.yml  以 profiles 分成 infra / edge / cloud
 ```
+
+依賴管理：後端以 `backend/pyproject.toml` + `backend/uv.lock` 為準；`requirements.txt`（根目錄）是 `Fall/` 下 AI 與 MLOps 腳本的依賴。
 
 ## 執行方式
 
@@ -200,13 +205,28 @@ docker compose --profile cloud up -d   # Label Studio、ClearML、Webhook receiv
 - VLM 需要本機先安裝 Ollama 並 `ollama pull qwen2.5vl`。
 - `docker-compose.yml` 內的部分預設值（資料庫帳密、掛載路徑）是開發用，正式使用前請改掉。
 
+## 持續整合
+
+`.github/workflows/ci.yml` 會在 push / PR 時執行後端 pytest 與前端 `npm run build`。前端 `npm run lint` 目前有 4 個既有錯誤（`no-explicit-any` 等），CI 內設為不阻擋。CI 設定我只在本機驗證過各步驟指令，**尚未在 GitHub 上實際跑過**。
+
 ## 已知限制
 
 - 隨機切分的 97.68% 有資料洩漏；依片段切分只有約 66.7%，目前沒有在獨立錄製的資料上驗證過。bend、squat 幾乎辨識不出來。
 - 訓練與展示資料不是真實長照機構的資料。
 - 沒有量測延遲與併發能力，沒有負載測試。
 - DeepStream 未實測；Triton 的 `action_transformer` 輸出維度已修正為 7 類，但我沒有實際用 Triton 載入並推論驗證過。
+- Dockerfile 的 backend 與 webhook 映像我沒有實際 build 驗證過（撰寫時 Docker 未啟動），compose 檔語法已用 `docker compose config` 檢查。
+- 推論 Worker 在啟動時載入最新權重，重訓後需重啟才會使用新模型。
+- 前端沒有自動化測試。
 - 安全性：compose 內有開發用預設資料庫帳密；CORS 預設只允許本機來源，部署時需設定 `ALLOWED_ORIGINS`。`EVENT_API_KEY` 必須自行在 `.env` 設定。
+
+## 下一步（Roadmap）
+
+1. 依影片/人物重新切分資料集並補資料，優先改善 bend、squat，重新評估動作分類模型。
+2. 用標註好的測試影片量測 Recall / Precision，並比較有無 VLM 二審的差異。
+3. 在完整環境量測端到端延遲，保存結果。
+4. 驗證 Triton 部署路徑（ONNX 匯出 → 載入 → 推論結果與 PyTorch 一致）。
+5. 修正前端 lint 錯誤並補上測試；後端補 `kafka_consumer.run()` 的整合測試。
 
 ## 我從這個專案學到的
 

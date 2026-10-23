@@ -1,5 +1,7 @@
 # Label Studio 啟動部屬與設定文件
 
+> 這是通用的部署說明。本專案的 `docker-compose.yml` 已包含 Label Studio，使用 `docker compose --profile cloud up -d` 即可，連接埠以 compose 檔為準（主機 8082 對應容器 8080；下文範例的 8080 為獨立部署時的設定）。
+
 本文檔說明如何使用 Docker Compose 部署並設定 Label Studio。
 
 ## 1. 系統需求
