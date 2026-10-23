@@ -1,5 +1,5 @@
 # 測 PATCH /events/{id}/verdict：值班人員判定真跌倒/誤報
-from backend.sse import pool
+from backend.events.sse import pool
 
 
 def test_未登入_401(client, make_event):

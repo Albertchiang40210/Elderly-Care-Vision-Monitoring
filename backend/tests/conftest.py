@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 # 測試用的機器驗證 key 與資料庫，要在 import main 之前設好
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-only-0123456789")
 os.environ["EVENT_API_KEY"] = "test-api-key"
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 

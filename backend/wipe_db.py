@@ -1,5 +1,5 @@
-from core.database import SessionLocal
-from core.models import DetectEvent, DetectEventReport
+from backend.core.database import SessionLocal
+from backend.core.models import DetectEvent, DetectEventReport
 db = SessionLocal()
 try:
     print("Deleting DetectEventReport...")

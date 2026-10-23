@@ -2,8 +2,8 @@
 # 目前會建立假資料入db 用來測試環境
 # 可重複執行：已有的自動略過，不會報錯（跟 create_test_user.py 同風格）
 from sqlalchemy import text
-from database import SessionLocal, Base, engine
-import models  # noqa: F401  讓 Base 認得所有表，create_all 才會建
+from backend.core.database import SessionLocal, Base, engine
+import backend.core.models  # noqa: F401  讓 Base 認得所有表，create_all 才會建
 
 Base.metadata.create_all(bind=engine)  # 建立還不存在的表（已存在的不動）
 print("新表建立完成（已存在的不動）")
@@ -34,7 +34,7 @@ with engine.begin() as conn:
     ))
 print("locations.floor / detect_events.location_id / detect_events.notified_at 欄位完成（已存在則略過）")
 
-from models import Company, Location, Device, Staff  # noqa: E402
+from backend.core.models import Company, Location, Device, Staff  # noqa: E402
 
 # 建立一個「資料庫工作階段（Session）」，之後就可以透過 db 操作資料庫。
 db = SessionLocal()

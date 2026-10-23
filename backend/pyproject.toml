@@ -28,4 +28,4 @@ dev = [
 # 告訴 pytest 去 tests/ 資料夾找測試，跑 uv run pytest 或 python -m pytest 都會自動找到
 testpaths = ["tests"]
 # 讓測試可以 import 根目錄的 main.py、auth.py 等主程式檔案
-pythonpath = ["."]
+pythonpath = [".", ".."]

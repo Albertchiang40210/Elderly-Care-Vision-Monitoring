@@ -33,7 +33,7 @@ albert 的 AI（producer，他負責）
 
 ## 訊息契約
 
-以「真正 producer 送的欄位」為準（`inference_test.py` 快速道路 / `vlm_worker.py` 二審），
+以「真正 producer 送的欄位」為準（`inference_worker.py` 快速道路 / `vlm_worker.py` 二審），
 **不以 `monitor_kafka.py` 為準**（該檔欄位過時、與真正 producer 矛盾）。
 
 訊息為 JSON，欄位對齊 `EventCreateRequest`：`device_id`、`event_type`、`clip_path`、

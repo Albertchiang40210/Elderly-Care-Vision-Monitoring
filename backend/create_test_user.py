@@ -1,6 +1,6 @@
-from database import SessionLocal, Base, engine
-from models import User
-from security import hash_password
+from backend.core.database import SessionLocal, Base, engine
+from backend.core.models import User
+from backend.core.security import hash_password
 
 # 確保資料表存在（第一次執行時會自動建立）
 Base.metadata.create_all(bind=engine)
