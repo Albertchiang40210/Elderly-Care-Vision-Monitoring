@@ -1,3 +1,4 @@
+# 在 Fall/ 目錄下執行: python smoke_test_action_model.py（需要已訓練的 transformer_action_model.pt）
 import torch
 import json
 from modules.action_transformer import ActionTransformer

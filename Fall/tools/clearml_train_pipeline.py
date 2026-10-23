@@ -226,7 +226,7 @@ def main():
     # =========================================================================
     # 5. 打擂台機制 (Champion vs Challenger) 與 Discord Webhook
     # =========================================================================
-    WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/1532199171531083846/OUJSFZjAw710l7Szw66hrzspo3aGfniGves8pP1nUSQ1x9EOAzP9yJT1wmATMg7yx_Bt")
+    WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 
     def send_discord_notification(title, message, color):
         if not WEBHOOK_URL:
@@ -285,11 +285,3 @@ if __name__ == "__main__":
     main()
 
 
-#「它是我們重訓飛輪的『發動機』，讓模型可以在後台『自動進修』，並把新學到的知識存在雲端。」
-#這個檔案就是你這套 Active Learning 系統中最硬核、最有價值的 MLOps 雲端重訓管線（Pipeline）。它的運作流程可以用三個步驟白話解釋：
-#雲端掛號註冊（ClearML Task）：
-#程式啟動後，會先跟 ClearML 平台註冊一個叫做 "Fall_Detection" 的任務，告訴平台：「我要開始訓練 RT-DETR 了！」同時，它還指定了 s3://aipe03-3/clearml-artifacts/models/fall_detection/ 作為雲端倉庫，只要模型一訓練完，立刻自動把最新的模型權重（.pt）備份到 AWS S3！
-#地端特工接單（ClearML Agent）：
-#這段程式平常不會在你本機直接消耗大量資源。它是被送到 ClearML 的隊列（Queue）中，等你左邊視窗的 Agent（運算節點）看到有新訂單時，把任務接過去，在背景悄悄執行。
-#RT-DETR 知識升級（Incremental Training）：
-#Agent 接單後，會自動加載你的 rtdetr-l.pt 權重檔，並讀取你指定的絕對路徑 data.yaml，用新進來的資料進行微調訓練（雖然 Demo 只跑 1 epoch，但這已經完整實現了 MLOps 閉環！）。

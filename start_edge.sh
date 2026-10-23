@@ -130,7 +130,7 @@ if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
     echo "✅ DeepStream 已在背景啟動 (容器: deepstream_pipeline)"
 else
     echo "💻 [硬體偵測] 未發現 NVIDIA GPU，自動降級啟用 Python (GStreamer+OpenCV) 引擎！"
-    (cd "$BASE_DIR/Fall/tools" && "$BASE_DIR/Fall/.venv/bin/python" inference_test.py --headless)
+    (cd "$BASE_DIR/Fall/tools" && "$BASE_DIR/Fall/.venv/bin/python" inference_worker.py --headless)
 fi
 
 # =========================================================================

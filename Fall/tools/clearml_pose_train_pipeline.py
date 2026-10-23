@@ -216,7 +216,7 @@ def main():
     # =========================================================================
     # 5. 打擂台機制 (Champion vs Challenger) 與 Discord Webhook
     # =========================================================================
-    WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/1532199171531083846/OUJSFZjAw710l7Szw66hrzspo3aGfniGves8pP1nUSQ1x9EOAzP9yJT1wmATMg7yx_Bt")
+    WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 
     def send_discord_notification(title, message, color):
         if not WEBHOOK_URL:

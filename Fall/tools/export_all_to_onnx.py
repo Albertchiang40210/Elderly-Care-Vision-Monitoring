@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from ultralytics import YOLO
 
-# 定義 ActionTransformer 結構與 inference_test.py 保持完全一致
+# 定義 ActionTransformer 結構與 inference_worker.py 保持完全一致
 class ActionTransformer(nn.Module):
     def __init__(self, input_dim=34, seq_len=30, num_classes=2):
         super(ActionTransformer, self).__init__()

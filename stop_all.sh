@@ -19,7 +19,7 @@ docker rm deepstream_pipeline >/dev/null 2>&1 || true
 
 # 2. 關閉所有前線與後端微服務進程 (Edge & Cloud)
 echo "🐍 正在強制終止 Python 與 Node 進程..."
-pkill -f "python.*inference_test.py"
+pkill -f "python.*inference_worker.py"
 pkill -f "python.*vlm_worker.py"
 pkill -f "python.*kafka_consumer.py"
 pkill -f "python.*watchdog.py"
