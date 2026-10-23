@@ -81,3 +81,8 @@ Fall/tools/pose_dynamic_data.yaml
 
 # 9. 忽略含本機絕對路徑的 data.yaml（請複製 data.yaml.example 並修改路徑）
 Fall/tools/data.yaml
+
+# 後端執行期產生的檔案
+backend/*.sqlite
+.coverage
+Fall/backend/static/images/
