@@ -1,105 +1,209 @@
-# 🏥 智慧病房主動學習 MLOps 即時防跌落管線系統 (Smart Ward Active Learning MLOps Pipeline)
+# 長照機構跌倒偵測與主動學習系統（AIPE03）
 
-![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
-![Framework](<https://img.shields.io/badge/Framework-FastAPI%20%7C%20Ultralytics%20%7C%20Ollama-green.svg>)
-![Pipeline](<https://img.shields.io/badge/Pipeline-NVIDIA%20DeepStream%207.0%20%7C%20Triton%20Server-76B900.svg>)
-![MLOps](<https://img.shields.io/badge/MLOps-ClearML%20%7C%20Label%20Studio-orange.svg>)
-![Infrastructure](<https://img.shields.io/badge/Infrastructure-Docker%20%7C%20Kafka%20%7C%20MediaMTX%20%7C%20AWS%20S3-lightgrey.svg>)
+長照機構的跌倒偵測系統。用 YOLO11-Pose 取得人體骨架，再用自己訓練的 Transformer 判斷連續 30 幀的動作；信心不高的事件交給本地 VLM（Qwen2.5-VL）二次審核。事件由 FastAPI 後端接收、透過 SSE 推送到 React 護理站儀表板，並把誤報與低信心樣本送進 Label Studio / ClearML 做標註與重訓。
 
-> **工業級智慧醫療監控落地解決方案**：結合前線多鏡頭時序推理邊緣端（NVIDIA DeepStream 7.0 / Python 雙模式引擎）、Triton Inference Server、後台大語言模型（Video-LLM）雙軌二審機制、與 Label Studio 數據閉環，全面打通「異常採集 ➔ 雲端下沉 ➔ 智慧預標註 ➔ 非阻塞異步點火 ➔ 背景 Agent 密集監督增量重訓」的全自動 MLOps 主動學習飛輪。
+> 這是個人專案，在筆電與一台 GCP VM 上開發與展示，**尚未在真實機構部署，也沒有經過長期穩定性或壓力測試**。下方「已知限制」有完整說明，數據都附上來源與測量條件。
 
----
+## 系統架構
 
-## 🏗️ 核心檔案與架構全景導覽 (Core Components)
+```
+RTSP 攝影機 ─► MediaMTX / go2rtc ─► 推論 Worker (Fall/tools/inference_test.py)
+                                       │  YOLO11-Pose → 骨架序列(30 幀×34 維) → ActionTransformer
+                                       │  (支援直接載入模型，或透過 Triton Inference Server 呼叫 ONNX)
+                                       ▼
+                                  Kafka 事件
+                       ┌──────────────┴───────────────┐
+              信心高：直接送出                  信心中：vlm_worker.py
+                       │                     (LangGraph + Ollama/Qwen2.5-VL 看影片二審)
+                       └──────────────┬───────────────┘
+                                      ▼
+                  backend/kafka_consumer.py ─► POST /events (X-API-Key)
+                                      ▼
+              FastAPI + PostgreSQL ──SSE──► React 護理站儀表板
+                    │ 影片/截圖存 S3，API 回傳限時 presigned URL
+                    ▼
+        誤報 / 低信心樣本 ─► Label Studio 標註 ─► Webhook 計數 ─► ClearML 重訓 ─► 新權重回 S3
+```
 
-<img width="978" height="769" alt="899e87f4-889c-4f60-b69b-0360afbbc657" src="https://github.com/user-attachments/assets/85f912c4-06dc-44b1-84e6-5f527e68ffa2" />
+### 實作了什麼、沒實作什麼
 
-本專案由關鍵模組、腳本、Docker 容器與組態配置交織而成，以下為各檔案在系統中的「白話文使命與核心職責」：
+| 項目 | 狀態 |
+|---|---|
+| 骨架 + Transformer 動作分類（7 類） | 已實作並訓練 |
+| 規則式跌倒判斷（身體角度、EMA 追蹤）`Fall/modules/fall_detector.py` | 已實作 |
+| VLM 二審（LangGraph 分流，三區間門檻） | 已實作，**效能尚未量化評估** |
+| FastAPI 後端（JWT 登入、事件、裝置、報告、SSE、S3 presigned URL） | 已實作，有自動化測試 |
+| React 儀表板（20 個頁面） | 已實作，無前端自動化測試 |
+| Triton 部署 ONNX 模型 | 設定檔已提供，模型檔不在 repo（見下） |
+| DeepStream 7.0 | 只有一份設定檔 `deepstream_configs/deepstream_app_config.txt`，**沒有在 NVIDIA GPU 上實際跑過**；實際展示用的是 Python 推論 Worker |
+| 自動重訓流程（Webhook → ClearML） | 腳本已寫，**沒有驗證過重訓後的模型比舊模型更好** |
+| RT-DETR 的 DEIM 設定 `rtdetr-l-deim.yaml` | 有設定檔，**沒有對照實驗**，不宣稱準確度提升 |
 
-### 📁 第一階段：環境防禦與資料基石 (Env & Data Basics)
+## 測試與數據
 
-* **1. `.env`（專案總帳本）**
-  * *白話使命*：全系統的安全核心，集中管理 AWS 雲端密鑰（S3）、RDS 資料庫帳密、以及 Kafka 與 Label Studio 的連線 Port，拒絕將密鑰硬編碼在程式中。
-* **2. `.gitignore`（隱私過濾網）**
-  * *白話使命*：專案上傳 GitHub 時的隱形過濾器。強制阻擋動輒數百 MB 的大模型權重檔（`.pt` / `.pth`）、有機密帳密的 `.env`、資料庫憑證 `.pem` 以及 `backend/` 資料夾，防範公司資產被看光。
-* **3. `data.yaml`（模型課本目錄）**
-  * *白話使命*：後台大腦增量訓練時的「目錄索引表」。使用絕對路徑精準映射地端的資料夾（`images/` 和 `labels/`），明定重訓類別（`person`, `bed`, `wheelchair`），防止 Ultralytics 找不到課本而罷工。
-* **4. `clean_pose_to_det.py`（特徵資料清洗器）**
-  * *白話使命*：主動學習的清洗工人。前線採集到的長輩跌倒姿勢往往夾雜雜訊，本腳本專職過濾掉骨架關節不完整的髒數據，將其提煉並轉換成標準 YOLO 方形框座標。
+以下數據都是我實際執行或從 repo 檔案計算得到的。
 
-### 📁 第二階段：前線多模態邊緣推論與雙模式 AI 引擎 (Edge Inference & Dual-Mode Pipeline)
+### 後端自動化測試（pytest）
 
-* **5. `deepstream_configs/deepstream_app_config.txt`（DeepStream 7.0 產線級 Pipeline 配置文件）**
-  * *白話使命*：NVIDIA 高效能 GPU 推理管線的組態大腦。定義了原始 RTSP 接入、`nvinferserver` (Triton Server)、`nvtracker` 多目標追蹤、OSD 骨架與跌倒框即時繪製、MediaMTX (RTSP/WebRTC) 串流輸出與 Kafka 告警傳播器 (`nvmsgbroker`)，實現全 GPU 零拷貝（Zero-Copy）毫秒級處理。
-* **6. `action_transformer.pth`（時序動作記憶體）**
-  * *白話使命*：存放 ActionTransformer 模型的微調核心權重，負責賦予系統「觀察連續 30 幀動作」的時序記憶能力。
-* **7. `inference_test.py`（前線多鏡頭巡邏 Worker - Dev 模式）**
-  * *白話使命*：智慧病房第一線的 Python AI 巡邏警衛。在 Mac/CPU 本地開發環境下，利用 GStreamer/OpenCV 多線程平行拉取攝影機畫面，融合 YOLO11-Pose 與 ActionTransformer；內建「跌倒自行站起姿態自動恢復 (Self-Recovery)」與「背景多執行緒 10 秒影片合成傳 S3」無感降維技術，實現地端無痕隱私清理與高流暢度監控。
-* **8. `get_latency_diff.py`（秒數差觀測站）**
-  * *白話使命*：護理站的流量儀與秒錶。同時監聽 Kafka 的快速道路與二審佇列，精確算出警報從邊緣端發出到護理站收到的「端到端總延遲時間」，精度高達毫秒級，用直觀的秒數差向評審證明系統的高吞吐量。
+執行：`cd backend && PYTHONPATH=..:. uv run pytest -q`（測試使用 in-memory SQLite，不需要啟動 Postgres）
 
-### 📁 第三階段：雲端資安與 Docker 基礎建設 (Infra & DevOps)
+| 項目 | 結果 |
+|---|---|
+| 測試檔數 | 23 個 |
+| 結果 | **120 個全部通過**（約 54 秒） |
+| 程式碼覆蓋率 | **約 78%**（787 行應用程式碼中 616 行被執行；已排除測試檔與一次性腳本 `create_seed_data.py`、`init_db.py` 等） |
 
-* **9. `global-bundle.pem`（AWS RDS 加密連線數位印章）**
-  * *白話使命*：工業級資安防火牆。裡面是 AWS 官方核發的數位憑證總集合，Python 程式在連線 RDS 資料庫時會強制開啟 SSL/TLS 加密，與這枚印章核對，確認對方是 AWS 官方資料庫而非山寨網站，保障病患隱私。
-* **10. `docker-compose-clearml.yml`（實驗重訓看板六大貨櫃圖紙）**
-  * *白話使命*：MLOps 重訓後台的一鍵建造圖紙。自動將 Redis、MongoDB、Elasticsearch、APIServer、Web控制台（Port 8080）與 FileServer 打包聯網，提供完美的實驗追蹤後台。
-* **11. `docker-compose-kafka.yml`（訊息公路與地端資料庫圖紙）**
-  * *白話使命*：整套串流系統的交通樞紐。一鍵開啟 Zookeeper、Kafka（Port 9092）訊息收發中心，以及用於儲存病患資料與告警歷史的 PostgreSQL（Port 5433）中央倉庫。
-* **12. `docker-compose-label.yml`（標註平台控制台圖紙）**
-  * *白話使命*：主動學習的人工審核控制台。在背景一鍵跑起 Label Studio 容器（Port 8089），並掛載實體磁碟卷防止標註好的黃金教材遺失。
+覆蓋最弱的是 `events/router.py`（71%）與 `kafka_consumer.py`（59%，`run()` 主迴圈需要真的 Kafka，沒有測）。測試只涵蓋後端，前端沒有自動化測試。
 
-### 📁 第四階段：後台大腦二審與主動學習閉環 (VLM & Active Learning)
+### 動作分類模型（ActionTransformer）
 
-* **13. `vlm_worker.py`（護理長大腦：VLM 雙軌二審監聽器）**
-  * *白話使命*：護理站的 AI 總護理長。負責監聽 Kafka 警報並執行三區間分流策略。當置信度模糊時，自動喚醒本地端 `Qwen2.5-VL` 進行原生影片時序二審。審核成功後，自動在本地 `predictions/` 生成 Label Studio Standards 預測 JSON，解鎖主動學習閉環。
-* **14. `inference_to_labelstudio_sdk.py`（AI 自動預標註與 S3 下沉同步器）**
-  * *白話使命*：後台的 AI 自動畫框外包小幫手。模擬瀏覽器登入標註平台，若照片處在雲端 S3 則透過 Boto3 串流下載到地端（對齊 ClearML重訓目錄），並利用大腦模型進行環境偵測（`bed`, `chair` 等），直接以「已正式提交」的狀態灌回網頁。
-* **15. `webhook_receiver.py`（自動化計數點火閥）**
-  * *白話使命*：全自動點火控制閥。在 Port 9001 默默數著 Label Studio 傳回來的 Webhook 張數。當累積標註滿設定張數時，利用 asyncio 異步非阻塞技術與 `asyncio.Lock()` 併發鎖防禦，彈射發射重訓任務，完全不卡網頁主水管與競態衝突。
-* **16. `watchdog.py`（輪詢掃描監控守護進程）**
-  * *白話使命*：不知疲倦的維運警衛。每隔 5 分鐘（300 秒）自動被喚醒，去驅動同步與自動標註腳本，搭配多軌 `watchdog.log` 日誌，保證主動學習管線 24 小時不斷線。
+| 項目 | 數值 |
+|---|---|
+| 輸入 | 30 幀 × 17 個關鍵點 × (x, y) = 30×34 |
+| 模型 | 2 層 Transformer encoder，d_model=64，4 heads |
+| 類別 | bend、fall、kneel、normal、sitdown、squat、walk（7 類） |
+| 資料集 | 19,392 筆序列（約 75 段連續片段） |
 
-### 📁 第五階段：雲端增量重訓與結構優化 (Incremental Training)
+各類別筆數：fall 9,524 ／ walk 2,524 ／ sitdown 1,664 ／ squat 1,640 ／ kneel 1,480 ／ bend 1,316 ／ normal 1,244
 
-* **17. `rtdetr-l-deim.yaml`（DEIM 密集輔助監督結構藍圖）**
-  * *白話使命*：自研大腦的獨家武功秘笈。精簡官方參數，在訓練時注入「一對多密集匹配（Dense Matching）」大幅提升對棉被遮擋、輪椅欄杆等複雜病房環境的學習精準度；推論時自動收回精簡，完全不拖慢前線毫秒級的速度。
-* **18. `clearml_train_pipeline.py`（雲端增量重訓核心大腦）**
-  * *白話使命*：真正執行模型進化的重訓大腦。自動去抓取剛剛預標註並審核完的 6 張新鮮教材，執行增量訓練，並在重訓結束後將新權重自動推回 AWS S3 模型倉庫。
-* **19. `submit_task.py`（總指揮官點火腳本）**
-  * *白話使命*：重訓飛輪的避雷針與點火器。在 ClearML 看板建立任務殼，注入 `CLEARML_DISABLE_GIT_DETECTION` 變數強制繞過 Git 檢查防止崩潰；自動外掛雲端「自力救濟安裝套件碼」，並利用 `subprocess` 開闢原生進程直接開訓，防止線程死鎖。
+**兩種切分方式的結果差很多：**
 
-### 📁 第六階段：大自動化一鍵通電運維 (DevOps Automations)
+| 驗證方式 | 驗證準確率 |
+|---|---|
+| 隨機切 80/20（訓練腳本 `train_action_classifier.py` 的做法，`metrics.json` 的 97.68%） | 97.68%（取驗證集上最佳的 epoch） |
+| **依連續片段切 80/20**（`Fall/tools/eval_grouped_split.py`，30 epochs，最後一個 epoch） | **66.7%** |
 
-* **20. `start_edge.sh`（前線邊緣端駐守啟動腳本）**
-  * *白話使命*：前線 AI 推論與安防系統的主開關。負責一鍵啟動 FastAPI 後端、前端 Web 即時戰情室、MediaMTX 影像中繼，以及 VLM 警報攔截器與核心 AI 辨識引擎。自動偵測並支援手機/遠端 IP 鏡頭、Mac 內建視訊鏡頭或展示影片。
-* **21. `start_cloud.sh`（後勤雲端 MLOps 啟動腳本）**
-  * *白話使命*：雲端「煉丹爐」與標註伺服器的啟動開關。當需要幫 AI 補習重訓時才開啟，負責啟動 MLOps 基礎設施 Docker (ClearML, Label Studio, Kafka)，以及 Watchdog 巡邏員與 Webhook 監聽器，建立全自動的主動學習管線。
+原因：序列是用滑動窗口（stride 5、長度 30）從連續影片切出來的，相鄰窗口高度重疊。隨機切分會讓幾乎相同的樣本同時出現在訓練與驗證集，**97.68% 嚴重高估**真實泛化能力。依片段切分後，整片段都沒看過，才比較接近換新場景時的表現。另外 `best_acc` 是在驗證集上挑最佳 epoch，也有些許樂觀偏差。
 
----
+依片段切分的分類報告（驗證 2,520 筆、15 段）：
 
-## 🛠️ 環境依賴配置 (Requirements)
+| 類別 | precision | recall |
+|---|---|---|
+| fall | 0.664 | **0.932** |
+| normal | 0.789 | 0.956 |
+| walk | 0.657 | 0.665 |
+| sitdown | 0.548 | 0.611 |
+| kneel | 0.703 | 0.531 |
+| bend | 0.286 | 0.016 |
+| squat | 0.237 | 0.046 |
 
-專案虛擬環境完全體套件清單如下（已全面過濾冗餘相依，鎖定最穩定工業級版本）：
+跌倒的 recall 偏高（0.93）但 precision 只有 0.66，多數誤判來自其他動作被判成 fall；bend、squat 幾乎認不出來。這也是系統需要規則式判斷與 VLM 二審來降低誤報的原因。
 
-```text
-python-dotenv             # 用於讀取 .env 檔案中的雲端憑證、資料庫與 Kafka 設定
-requests                  # 用於模擬瀏覽器登入與呼叫 Label Studio API 自動注入標註
-torch                     # PyTorch 核心深度學習框架 (用於 ActionTransformer 與張量序列運算)
-torchvision               # PyTorch 影像處理擴充套件
-ultralytics>=8.1.0        # YOLOv11 & RT-DETR/DEIM-DETR 核心推論與增量重訓套件
-numpy                     # 基礎矩陣運算與邊緣端影像資料流處理
-ollama                    # 本地端大模型驅動 SDK (用於調用 Qwen2.5-VL 進行影片二審判讀)
-langgraph                 # Agent 狀態圖編譯與事件生命週期狀態機框架 (用於 vlm_worker 護理長大腦)
-langchain-core            # LangGraph 基礎元件與 Prompt/Message 封裝
-boto3                     # AWS 官方 Python SDK (解鎖邊緣端直傳 S3 與自動化下載下沉對齊)
-clearml[s3]>=1.14.0       # MLOps 實驗追蹤核心，整合 [s3] 擴充以支援自動同步重訓模型至雲端
-psycopg2-binary           # 用於安全連接 AWS RDS (PostgreSQL) 關聯式資料庫
-kafka-python-ng           # 用於讀取與寫入 Kafka 訊息佇列 (相容 Python 3.12+)
-sqlalchemy                # ORM 框架，用於對關聯式資料庫進行物件關係對應操作
-python-jose[cryptography] # JWT Token 簽名與解密驗證工具
-passlib[bcrypt]           # 密碼雜湊與安全比對工具
-python-multipart          # 允許 FastAPI 解析前端登入表單資料
-fastapi                   # 用於建立高吞吐量的 Webhook 監聽服務，對接 Label Studio 事件
-uvicorn                   # FastAPI 的高效能 ASGI Web 伺服器引擎
-opencv-python             # OpenCV 核心影像與影片處理套件 (用於邊緣端影像流)
+**這個評估本身的限制：**
+- 資料集沒有影片編號，我用「連續相同標籤」近似「同一支影片」，可能把同一支影片切成多段，或相反；只有 15 段驗證片段，變異很大。
+- 只訓練 30 epochs（正式訓練是 150），單一隨機種子，沒有重複實驗。
+- 資料來源是展示用與自行錄製的場景，不是真實長者。
+- 因此 66.7% 是粗略的下界式參考，不是穩定的指標。要得到可靠數字，需要依影片重新蒐集並切分資料。
+
+### 資料集規模
+
+| 資料 | 數量 |
+|---|---|
+| 物件偵測影像（`active_learning_dataset/images`） | 1,376 張 |
+| 動作特徵序列 | 19,392 筆 |
+
+### 後端 API 處理時間（僅後端，非端到端）
+
+`BENCH=1 PYTHONPATH=..:. uv run pytest -s tests/test_bench_events.py`（在 `backend/` 下）
+
+| 項目 | 結果 |
+|---|---|
+| 量測內容 | `POST /events` 300 次，含驗證、寫入 in-memory SQLite |
+| 環境 | Apple M5 Pro（arm64），TestClient，無網路 |
+| 中位數 / P95 / 最大 | 1.7 ms / 1.9 ms / 9.1 ms |
+
+這只代表後端處理邏輯本身很快；**不含** Kafka、網路、S3、PostgreSQL 與 AI 推論，不能當作端到端延遲。
+
+### 尚未量測的項目
+
+下列項目我**沒有可信的測量值**，所以不寫數字：
+- 端到端警報延遲（需要完整 Kafka + 推論環境，`Fall/tools/get_latency_diff.py` 可量測，但我沒有保存過正式結果）
+- 跌倒偵測的 Recall / Precision，以及加入 VLM 前後的差異
+- 多路攝影機同時推論的上限
+- 重訓前後模型的準確率變化
+
+> 先前版本的簡報圖表腳本裡有一組寫死的 VLM 前後 Recall/Precision 數字（非實測），已連同圖檔刪除。目前 repo 內沒有任何 VLM 效能數據。
+
+## VLM 二審的分流邏輯
+
+`Fall/tools/vlm_worker.py` 用 LangGraph 做狀態圖，依事件型態與信心分數分流：
+
+- 事件型態為 `fall`（Kafka 上的跌倒事件本來就是偏低信心才會送來）或例行環境檢查 → 一律進 VLM
+- 其他事件：分數 ≥ 0.75 直接放行；0.35 ≤ 分數 < 0.75 進 VLM；< 0.35 丟棄
+- VLM 使用本地 Ollama 的 `qwen2.5vl:latest`，審核結果可產生 Label Studio 預測 JSON 供人工確認
+
+這些門檻是我憑經驗設定的，沒有用資料做過校準。
+
+## 後端 API（FastAPI）
+
+| 方法 | 路徑 | 說明 |
+|---|---|---|
+| POST | `/login`、`/register` | JWT 登入；註冊需 admin |
+| GET/PATCH | `/me`、`/me/password` | 個人資料與改密碼 |
+| GET/PATCH/DELETE | `/users`、`/users/{id}` | 使用者管理（admin） |
+| GET/PATCH | `/devices`、`/devices/{id}` | 攝影機裝置 |
+| POST | `/events` | 判斷層送事件，以 `X-API-Key` 驗證（機器對機器） |
+| GET | `/events` | 事件列表 |
+| GET | `/events/{id}/media` | 回傳 S3 限時 presigned URL |
+| POST | `/events/{id}/ack` | 護理人員確認收到 |
+| PATCH | `/events/{id}/resolve`、`/verdict` | 結案、判定真/誤報 |
+| GET/POST | `/events/{id}/reports` | 事件報告 |
+| GET | `/events/live-detection/stream` | SSE 即時推送 |
+
+## 技術棧
+
+- **AI**：PyTorch、Ultralytics（YOLO11-Pose、RT-DETR）、ONNX Runtime、Triton Inference Server、Ollama（Qwen2.5-VL）、LangGraph
+- **後端**：FastAPI、SQLAlchemy、PostgreSQL（測試用 SQLite）、Kafka（kafka-python-ng）、JWT（python-jose）、boto3
+- **前端**：React 19、TypeScript、Vite、Tailwind CSS 4
+- **MLOps**：Label Studio、ClearML
+- **基礎設施**：Docker Compose（profiles）、MediaMTX、go2rtc、AWS S3 / RDS、GCP VM
+
+## 目錄結構
+
+```
+backend/            FastAPI 後端（core/、events/、devices/、users/、reports/、tests/）
+frontend/           React 儀表板
+Fall/modules/       骨架序列追蹤、ActionTransformer、規則式跌倒判斷
+Fall/tools/         推論 Worker、VLM worker、標註同步、ClearML 訓練與部署腳本
+Fall/model_repository/  Triton 模型設定（config.pbtxt）
+deepstream_configs/ DeepStream 設定檔（未實測）
+gcp_vm_environment/ GCP VM 上的 Kafka / Nginx / Prometheus 部署設定
+RTSP.MediaMTX_20260723/  MediaMTX 設定與排查筆記
+docker-compose.yml  以 profiles 分成 infra / edge / cloud
+```
+
+## 執行方式
+
+```bash
+cp .env.example .env              # 填入資料庫、SECRET_KEY、EVENT_API_KEY、S3 設定
+
+docker compose up -d              # 基礎層：PostgreSQL、Zookeeper、Kafka
+docker compose --profile edge up -d    # 後端、前端、Triton、Netdata
+docker compose --profile cloud up -d   # Label Studio、ClearML、Webhook receiver
+```
+
+也可使用 `start_edge.sh` / `start_cloud.sh` / `stop_all.sh` 在本機啟動各服務。
+
+**取得模型權重（repo 不含）**
+1. 準備資料並訓練：`Fall/tools/extract_action_features.py` → `Fall/tools/train_action_classifier.py`
+2. 匯出 ONNX：`Fall/tools/export_action_model.py`（輸出到 `Fall/model_repository/action_transformer/<版本>/model.onnx`）
+3. 姿態與偵測模型由 `Fall/tools/export_all_to_onnx.py` 匯出；`yolo_pose`、`rt_detr` 需放到對應的 `model_repository` 目錄
+
+**注意**
+- 模型權重（`.pt`、`.onnx`）因檔案大小與 `.gitignore` 設定不在 repo 裡，需自行訓練或匯出（`Fall/tools/export_all_to_onnx.py`），並放到 Triton 的 model repository。
+- VLM 需要本機先安裝 Ollama 並 `ollama pull qwen2.5vl`。
+- `docker-compose.yml` 內的部分預設值（資料庫帳密、掛載路徑）是開發用，正式使用前請改掉。
+
+## 已知限制
+
+- 隨機切分的 97.68% 有資料洩漏；依片段切分只有約 66.7%，目前沒有在獨立錄製的資料上驗證過。bend、squat 幾乎辨識不出來。
+- 訓練與展示資料不是真實長照機構的資料。
+- 沒有量測延遲與併發能力，沒有負載測試。
+- DeepStream 未實測；Triton 的 `action_transformer` 輸出維度已修正為 7 類，但我沒有實際用 Triton 載入並推論驗證過。
+- 安全性：compose 內有開發用預設資料庫帳密；CORS 預設只允許本機來源，部署時需設定 `ALLOWED_ORIGINS`。`EVENT_API_KEY` 必須自行在 `.env` 設定。
+
+## 我從這個專案學到的
+
+- 把 AI 推論結果接進一個完整的事件系統（Kafka → API → SSE → 前端）要處理的重試、冪等與驗證問題。
+- 用「規則 + 時序模型 + VLM」分層降低誤報成本的設計取捨。
+- 資料切分方式對指標可信度的影響：同一份資料，隨機切 97.7%、依片段切 66.7%。下一步是依影片/人物重新切分並補資料，尤其是 bend 與 squat。

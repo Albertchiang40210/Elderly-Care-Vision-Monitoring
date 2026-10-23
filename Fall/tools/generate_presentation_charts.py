@@ -78,53 +78,5 @@ def generate_confusion_matrix():
     plt.close()
     print(f"🎉 混淆矩陣已儲存至: {out_path}")
 
-def generate_vlm_comparison():
-    print("🔄 正在生成 VLM 效能對比圖表...")
-    categories = ['Recall (抓到跌倒)', 'Precision (報警準確)']
-    yolo_act_only = [98.5, 42.3]  
-    with_vlm = [98.5, 93.7]       
-    
-    x = np.arange(len(categories))
-    width = 0.35
-
-    fig, ax = plt.subplots(figsize=(8, 6))
-    rects1 = ax.bar(x - width/2, yolo_act_only, width, label='Edge AI (Threshold 15%)', color='#FFA07A')
-    rects2 = ax.bar(x + width/2, with_vlm, width, label='Edge AI + VLM Review', color='#20B2AA')
-
-    ax.set_ylabel('Percentage (%)', fontsize=12)
-    ax.set_title('Performance Boost with VLM Second-Review', fontsize=16)
-    ax.set_xticks(x)
-    ax.set_xticklabels(categories, fontsize=12)
-    ax.legend(fontsize=12)
-    ax.set_ylim(0, 110)
-
-    ax.bar_label(rects1, padding=3, fmt='%.1f%%')
-    ax.bar_label(rects2, padding=3, fmt='%.1f%%', color='green', weight='bold')
-
-    out_path = OUTPUT_DIR / "vlm_comparison_chart.png"
-    plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"🎉 VLM 對比圖已儲存至: {out_path}")
-
-def print_model_comparison():
-    print("\n" + "="*50)
-    print("📊 [簡報專用文字] 可直接複製至 Canva")
-    print("="*50)
-    print("【第 2, 11 點：算力與選型】")
-    print("1. YOLO11s-Pose : 參數 ~9.4M | 算力 ~30.2G FLOPs | FPS: ~24")
-    print("2. Action Trans : 參數 ~2.5M | 算力 <1.0G FLOPs | FPS: 微秒級")
-    print("3. RT-DETR-L    : 參數 ~32.0M | 算力 ~110G FLOPs | FPS: ~10 (降頻觸發)")
-    print("👉 口語講稿：「RT-DETR 雖然參數與算力是 YOLO 的 3 倍，但針對輪椅遮擋、點滴架密集的安養院環境，它移除了 NMS (非極大值抑制)，具備全局注意力，大幅降低漏抓率。」")
-    
-    print("\n【第 8, 9 點：信心分數與 VLM】")
-    print("👉 信心分數 0.4 不是瞎猜的，而是『路由閥值』。我們大膽將底線下修到 0.15 來換取極高的 Recall (不漏抓跌倒)，但隨之而來的 False Positive (把彎腰當跌倒) 則交由 VLM 攔截，讓 Precision 從 42% 飆升至 93%！")
-    
-    print("\n【第 13, 14 點：ClearML】")
-    print("👉 請登入 ClearML Web UI -> Fall_Detection_Action 專案 -> 點選最新 Task -> Scalars。")
-    print("👉 截圖你的 Training Loss 穩定下降、Accuracy 穩步上升到 99% 的曲線圖放進簡報！")
-    print("="*50 + "\n")
-
 if __name__ == "__main__":
     generate_confusion_matrix()
-    generate_vlm_comparison()
-    print_model_comparison()
