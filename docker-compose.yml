@@ -142,7 +142,7 @@ services:
     shm_size: '2gb' # 預留共享記憶體，防止大型影像模型推論時崩潰
     ports:
       - "8009:8000" # HTTP 端口
-      - "8001:8001" # gRPC 端口 (inference_test.py 主要連線這個)
+      - "8001:8001" # gRPC 端口 (inference_worker.py 主要連線這個)
       - "8002:8002" # Metrics 監控端口
     volumes:
       - ./Fall/model_repository:/models
@@ -175,16 +175,15 @@ services:
   # --- Webhook Receiver (標註完成自動觸發重訓) ---
   webhook-receiver:
     profiles: ["cloud"]
-    image: python:3.13-slim
+    build:
+      context: .
+      dockerfile: docker/webhook.Dockerfile
     container_name: webhook-receiver-compose
     restart: "no"
     volumes:
       - ./:/app
       - ~/.clearml.conf:/root/clearml.conf:ro
     working_dir: /app
-    command: >
-      sh -c "pip install --no-cache-dir fastapi uvicorn requests clearml boto3 opencv-python-headless numpy &&
-             python Fall/tools/webhook_receiver.py"
     ports:
       - "9000:9000"
     extra_hosts:
