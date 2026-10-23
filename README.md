@@ -20,9 +20,9 @@ RTSP 攝影機 ─► MediaMTX / go2rtc ─► 推論 Worker (Fall/tools/inferen
                   backend/kafka_consumer.py ─► POST /events (X-API-Key)
                                       ▼
               FastAPI + PostgreSQL ──SSE──► React 護理站儀表板
-                    │ 影片/截圖存 S3，API 回傳限時 presigned URL
+                    │ 截圖存本機 backend/static/images（以 /static 提供）
                     ▼
-        誤報 / 低信心樣本 ─► Label Studio 標註 ─► Webhook 計數 ─► ClearML 重訓 ─► 新權重回 S3
+        誤報 / 低信心樣本 ─► Label Studio 標註 ─► Webhook 計數 ─► ClearML 重訓 ─► 新權重存本機/ClearML
 ```
 
 ### 實作了什麼、沒實作什麼
@@ -32,7 +32,7 @@ RTSP 攝影機 ─► MediaMTX / go2rtc ─► 推論 Worker (Fall/tools/inferen
 | 骨架 + Transformer 動作分類（7 類） | 已實作並訓練 |
 | 規則式跌倒判斷（身體角度、EMA 追蹤）`Fall/modules/fall_detector.py` | 已實作 |
 | VLM 二審（LangGraph 分流，三區間門檻） | 已實作，**效能尚未量化評估** |
-| FastAPI 後端（JWT 登入、事件、裝置、報告、SSE、S3 presigned URL） | 已實作，有自動化測試 |
+| FastAPI 後端（JWT 登入、事件、裝置、報告、SSE） | 已實作，有自動化測試 |
 | React 儀表板（20 個頁面） | 已實作，無前端自動化測試 |
 | Triton 部署 ONNX 模型 | 設定檔已提供，模型檔不在 repo（見下） |
 | DeepStream 7.0 | 只有一份設定檔 `deepstream_configs/deepstream_app_config.txt`，**沒有在 NVIDIA GPU 上實際跑過**；實際展示用的是 Python 推論 Worker |
@@ -112,7 +112,7 @@ RTSP 攝影機 ─► MediaMTX / go2rtc ─► 推論 Worker (Fall/tools/inferen
 | 環境 | Apple M5 Pro（arm64），TestClient，無網路 |
 | 中位數 / P95 / 最大 | 1.7 ms / 1.9 ms / 9.1 ms |
 
-這只代表後端處理邏輯本身很快；**不含** Kafka、網路、S3、PostgreSQL 與 AI 推論，不能當作端到端延遲。
+這只代表後端處理邏輯本身很快；**不含** Kafka、網路、PostgreSQL 與 AI 推論，不能當作端到端延遲。
 
 ### 尚未量測的項目
 
@@ -144,11 +144,17 @@ RTSP 攝影機 ─► MediaMTX / go2rtc ─► 推論 Worker (Fall/tools/inferen
 | GET/PATCH | `/devices`、`/devices/{id}` | 攝影機裝置 |
 | POST | `/events` | 判斷層送事件，以 `X-API-Key` 驗證（機器對機器） |
 | GET | `/events` | 事件列表 |
-| GET | `/events/{id}/media` | 回傳 S3 限時 presigned URL |
+| GET | `/events/{id}/media` | 若 `clip_path`/`snapshot_path` 是 `s3://` 才回 presigned URL，否則回 null（見下方說明） |
 | POST | `/events/{id}/ack` | 護理人員確認收到 |
 | PATCH | `/events/{id}/resolve`、`/verdict` | 結案、判定真/誤報 |
 | GET/POST | `/events/{id}/reports` | 事件報告 |
 | GET | `/events/live-detection/stream` | SSE 即時推送 |
+
+## 儲存與雲端依賴
+
+整個系統在本機（Mac / 地端主機）以 Docker Compose 與本機程序執行：PostgreSQL、Kafka、Label Studio、ClearML 都是自架容器，VLM 使用本機 Ollama。截圖寫在 `backend/static/images`，由後端以 `/static` 提供。
+
+程式碼裡保留了**選用的** S3 整合：`backend/core/s3.py` 會把 `s3://bucket/key` 換成限時網址，`vlm_worker.py` 也能從 S3 讀取。這些在地端展示時**沒有啟用**，也沒有針對真實 S3 做過測試（單元測試用 mock）。`GET /events/{id}/media` 對非 `s3://` 的路徑會回傳 null，地端模式下推論 Worker 寫入的 `clip_path`/`snapshot_path` 是本機相對路徑（例如 `/images/...`），不經過這個端點。
 
 ## 技術棧
 
@@ -156,7 +162,7 @@ RTSP 攝影機 ─► MediaMTX / go2rtc ─► 推論 Worker (Fall/tools/inferen
 - **後端**：FastAPI、SQLAlchemy、PostgreSQL（測試用 SQLite）、Kafka（kafka-python-ng）、JWT（python-jose）、boto3
 - **前端**：React 19、TypeScript、Vite、Tailwind CSS 4
 - **MLOps**：Label Studio、ClearML
-- **基礎設施**：Docker Compose（profiles）、MediaMTX、go2rtc、AWS S3 / RDS、GCP VM
+- **基礎設施**：Docker Compose（profiles）、MediaMTX、go2rtc（本專案**全部地端執行，不依賴 AWS 或其他雲端服務**）
 
 ## 目錄結構
 
@@ -167,7 +173,7 @@ Fall/modules/       骨架序列追蹤、ActionTransformer、規則式跌倒判�
 Fall/tools/         推論 Worker、VLM worker、標註同步、ClearML 訓練與部署腳本
 Fall/model_repository/  Triton 模型設定（config.pbtxt）
 deepstream_configs/ DeepStream 設定檔（未實測）
-gcp_vm_environment/ GCP VM 上的 Kafka / Nginx / Prometheus 部署設定
+gcp_vm_environment/ 另一組 Kafka / Nginx / Prometheus 部署設定（VM 部署用，展示環境未使用）
 RTSP.MediaMTX_20260723/  MediaMTX 設定與排查筆記
 docker-compose.yml  以 profiles 分成 infra / edge / cloud
 ```
@@ -175,7 +181,7 @@ docker-compose.yml  以 profiles 分成 infra / edge / cloud
 ## 執行方式
 
 ```bash
-cp .env.example .env              # 填入資料庫、SECRET_KEY、EVENT_API_KEY、S3 設定
+cp .env.example .env              # 填入資料庫、SECRET_KEY、EVENT_API_KEY；S3 相關欄位可留空
 
 docker compose up -d              # 基礎層：PostgreSQL、Zookeeper、Kafka
 docker compose --profile edge up -d    # 後端、前端、Triton、Netdata

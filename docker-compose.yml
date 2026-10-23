@@ -82,12 +82,10 @@ services:
       - DB_USER=${DB_USER:-testuser}
       - DB_PASSWORD=${DB_PASSWORD:-testpassword}
       - DB_NAME=${DB_NAME:-aidb}
-      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-ap-northeast-1}
       - EVENT_API_KEY=${EVENT_API_KEY:?請在 .env 設定 EVENT_API_KEY}
     volumes:
       - ./Fall/active_learning_dataset:/app/Fall/active_learning_dataset
       - ./backend/static:/app/static
-      - ${AWS_CREDENTIALS_PATH:-~/.aws}:/root/.aws:ro
     depends_on:
       postgres:
         condition: service_healthy
