@@ -35,8 +35,8 @@ router = APIRouter()
 
 
 # ── 機器驗證：判斷層帶 X-API-Key，跟 .env 的 EVENT_API_KEY 比對 ──
-# Header(...) 強制必填；key 只跟 config.py 的 EVENT_API_KEY 比對，不再硬編碼測試 key
-def require_api_key(x_api_key: str = Header(..., alias="X-API-Key")):
+# 沒帶 header 與帶錯 key 一律回 401（未驗證），而非 422；key 只跟 config.py 的 EVENT_API_KEY 比對，不再硬編碼測試 key
+def require_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
     if not EVENT_API_KEY:
         raise HTTPException(status_code=500, detail="伺服器未設定 EVENT_API_KEY")
     if x_api_key != EVENT_API_KEY:

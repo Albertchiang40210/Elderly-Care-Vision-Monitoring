@@ -17,7 +17,7 @@ def test_register_new_user_returns_success_message(client):
     )
     assert response.status_code == 201
 
-    assert "E888" in response.json()["message"]
+    assert response.json()["employee_id"] == "E888"
 
 
 def test_register_duplicate_username_returns_400(client):

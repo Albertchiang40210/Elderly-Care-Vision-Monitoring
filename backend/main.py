@@ -24,8 +24,8 @@ if os.getenv("SKIP_DB_INIT") != "1":
 app = FastAPI()
 
 # 告訴瀏覽器：「哪些網站可以存取我的 API。」
-# ⚠️ 生產環境請務必將 ALLOWED_ORIGINS 設定為白名單（如 https://your-domain.com），不要使用 *
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+# ⚠️ 生產環境請務必將 ALLOWED_ORIGINS 設定為白名單（如 https://your-domain.com），預設只允許本機開發來源，不要使用 *
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:8010").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,

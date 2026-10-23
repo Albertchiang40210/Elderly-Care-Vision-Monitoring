@@ -19,7 +19,21 @@ def test_500回retry():
 
 import json
 
-from kafka_consumer import handle_raw_message
+import kafka_consumer
+from kafka_consumer import process_message_with_retry
+
+
+class _FakeClient:
+    """把 httpx.Client.post 轉接到測試用的 post_fn(data)。"""
+    def __init__(self, post_fn):
+        self._post_fn = post_fn
+
+    def post(self, url, json=None, headers=None, timeout=None):
+        return self._post_fn(json)
+
+
+def handle_raw_message(raw, post_fn):
+    return process_message_with_retry(raw, _FakeClient(post_fn))
 from backend.core.models import DetectEvent
 
 
@@ -37,11 +51,18 @@ def test_合法json_400回poison():
     assert handle_raw_message(b'{"device_id": 999}', lambda data: _FakeResp(400)) == "poison"
 
 
-def test_送出丟例外回retry():
-    def boom(data):
-        raise ConnectionError("server down")
+def test_送出丟例外會重試直到成功(monkeypatch):
+    monkeypatch.setattr(kafka_consumer, "RETRY_SLEEP_SECONDS", 0)
+    calls = {"n": 0}
 
-    assert handle_raw_message(b'{"device_id": 1}', boom) == "retry"
+    def flaky(data):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise ConnectionError("server down")
+        return _FakeResp(201)
+
+    assert handle_raw_message(b'{"device_id": 1}', flaky) == "ok"
+    assert calls["n"] == 3
 
 
 def test_非法json回poison():
